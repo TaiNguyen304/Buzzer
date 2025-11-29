@@ -689,7 +689,16 @@
         if (!participants.some(p => p.userId === userId)) {
           participants.push(newParticipant);
           // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
-          const { error: updateError } = await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants } }).eq('id', roomId);
+          const { error: updateError } = await supabaseClient
+             .from('rooms')
+             .update({ 
+                room_data: { 
+                    ...room.room_data, 
+                    participants: participants, 
+                    last_join: new Date().toISOString() // ĐÃ THÊM: Trường phụ trợ để đảm bảo Realtime kích hoạt
+                } 
+             })
+             .eq('id', roomId);
 
           if (updateError) {
              console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError);
