@@ -291,7 +291,7 @@
         // Khởi tạo trạng thái ban đầu
         document.getElementById('joinRoomBtn').textContent = 'Xác nhận';
         document.getElementById('joinRoomBtn').disabled = false;
-        userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Tạo ID ngẫu nhiên
+        userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Tạo ID ngẫu nhiên cho phiên làm việc này
 
         function setErrorMessage(message) {
             errorMessage.textContent = message;
@@ -308,8 +308,6 @@
             errorMessage.textContent = "Đang tham gia phòng...";
             document.getElementById('joinRoomBtn').disabled = true;
 
-            const newParticipant = { userId, username: inputUsername, isHost: false, isManager: false };
-            
             try {
                 // 1. Lấy trạng thái phòng hiện tại
                 let { data: room, error } = await supabaseClient
@@ -324,27 +322,37 @@
                 }
 
                 currentRoomData = room.room_data;
-                const participants = currentRoomData.participants || [];
+                let participants = currentRoomData.participants || [];
 
+                // 2. Chuẩn bị thông tin người tham gia mới (userId luôn mới)
+                const newParticipant = { userId, username: inputUsername, isHost: false, isManager: false };
+                
                 // =====================================================================
-                // SỬA LỖI: Cập nhật danh sách người tham gia và LUÔN GỬI UPDATE
+                // SỬA LỖI: Cập nhật danh sách người tham gia bằng cách LỌC BỎ phiên cũ và THÊM phiên mới
+                // Thao tác này đảm bảo sự thay đổi về cấu trúc mảng để kích hoạt Realtime.
                 // =====================================================================
-                let participantIndex = participants.findIndex(p =>
-                    // Kiểm tra theo userId (dùng để update phiên cũ nếu re-join)
-                    String(p.userId) === String(userId) ||
-                    // Kiểm tra theo username (dùng để update phiên cũ nếu reload và có userId mới)
-                    (String(p.username).toLowerCase() === String(inputUsername).toLowerCase() && !p.isHost && !p.isManager)
-                );
+                const normalizedUsername = String(inputUsername).toLowerCase();
+                let participantFound = false;
 
-                if (participantIndex !== -1) {
-                    // Nếu tìm thấy: thay thế entry cũ bằng entry mới
-                    participants[participantIndex] = newParticipant;
-                    console.log(`Updated existing participant entry at index ${participantIndex}.`);
-                } else {
-                    // Nếu không tìm thấy: thêm entry mới
-                    participants.push(newParticipant);
-                    console.log(`Added new participant entry.`);
-                }
+                // Lọc bỏ tất cả các phiên làm việc cũ của thí sinh này (dựa trên username)
+                participants = participants.filter(p => {
+                    // GIỮ LẠI Host và Manager
+                    if (p.isHost || p.isManager) {
+                        return true;
+                    }
+                    // Nếu là thí sinh và username trùng khớp, KHÔNG GIỮ LẠI (để loại bỏ phiên cũ)
+                    if (String(p.username).toLowerCase() === normalizedUsername) {
+                        participantFound = true; // Đánh dấu đã tìm thấy
+                        return false; // Loại bỏ entry cũ
+                    }
+                    // Giữ lại các thí sinh khác
+                    return true;
+                });
+
+                // Luôn thêm phiên làm việc mới (userId mới) vào danh sách
+                participants.push(newParticipant);
+                console.log(`Participant ${inputUsername} joined/rejoined. Old session(s) removed: ${participantFound}. New session added.`);
+
 
                 // Luôn gửi cập nhật lên Supabase để kích hoạt Realtime cho Host/Manager
                 const { error: updateError } = await supabaseClient
