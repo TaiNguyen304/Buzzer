@@ -261,7 +261,6 @@
         // --- CẤU HÌNH SUPABASE (THAY THẾ BẰNG THÔNG TIN CỦA BẠN) ---
         const SUPABASE_URL = 'https://gyyjabuewruokczpqekz.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_K7-yvCKpi5qiV_N0WC3rMg_eG8MEHSV';
-        // ĐÃ SỬA LỖI: Đổi tên biến thành supabaseClient để tránh xung đột với đối tượng toàn cục 'supabase'
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         // -------------------------------------------------------------
 
@@ -309,11 +308,11 @@
             errorMessage.textContent = "Đang tham gia phòng...";
             document.getElementById('joinRoomBtn').disabled = true;
 
-            const newParticipant = { userId, username: inputUsername, socketId: userId };
+            const newParticipant = { userId, username: inputUsername, isHost: false, isManager: false };
             
             try {
                 // 1. Lấy trạng thái phòng hiện tại
-                let { data: room, error } = await supabaseClient // SỬA
+                let { data: room, error } = await supabaseClient
                     .from('rooms')
                     .select('room_data')
                     .eq('id', roomId)
@@ -327,20 +326,38 @@
                 currentRoomData = room.room_data;
                 const participants = currentRoomData.participants || [];
 
-                // 2. Cập nhật danh sách người tham gia (nếu chưa có)
-                if (!participants.some(p => p.userId === userId || p.username === inputUsername)) {
-                    participants.push(newParticipant);
-                    const { error: updateError } = await supabaseClient // SỬA
-                        .from('rooms')
-                        .update({ room_data: { ...currentRoomData, participants: participants } })
-                        .eq('id', roomId);
+                // =====================================================================
+                // SỬA LỖI: Cập nhật danh sách người tham gia và LUÔN GỬI UPDATE
+                // =====================================================================
+                let participantIndex = participants.findIndex(p =>
+                    // Kiểm tra theo userId (dùng để update phiên cũ nếu re-join)
+                    String(p.userId) === String(userId) ||
+                    // Kiểm tra theo username (dùng để update phiên cũ nếu reload và có userId mới)
+                    (String(p.username).toLowerCase() === String(inputUsername).toLowerCase() && !p.isHost && !p.isManager)
+                );
 
-                    if (updateError) {
-                        console.error("Lỗi khi cập nhật người tham gia:", updateError);
-                        setErrorMessage("Lỗi khi cập nhật danh sách người tham gia.");
-                        return;
-                    }
+                if (participantIndex !== -1) {
+                    // Nếu tìm thấy: thay thế entry cũ bằng entry mới
+                    participants[participantIndex] = newParticipant;
+                    console.log(`Updated existing participant entry at index ${participantIndex}.`);
+                } else {
+                    // Nếu không tìm thấy: thêm entry mới
+                    participants.push(newParticipant);
+                    console.log(`Added new participant entry.`);
                 }
+
+                // Luôn gửi cập nhật lên Supabase để kích hoạt Realtime cho Host/Manager
+                const { error: updateError } = await supabaseClient
+                    .from('rooms')
+                    .update({ room_data: { ...currentRoomData, participants: participants } })
+                    .eq('id', roomId);
+
+                if (updateError) {
+                    console.error("Lỗi khi cập nhật người tham gia:", updateError);
+                    setErrorMessage("Lỗi khi cập nhật danh sách người tham gia.");
+                    return;
+                }
+                // =====================================================================
 
                 // 3. Thiết lập Realtime Subscription
                 setupRealtimeListener(roomId);
@@ -364,9 +381,9 @@
         }
 
         function setupRealtimeListener(roomId) {
-            if (supabaseChannel) { supabaseClient.removeChannel(supabaseChannel); } // SỬA
+            if (supabaseChannel) { supabaseClient.removeChannel(supabaseChannel); }
 
-            supabaseChannel = supabaseClient.channel(`room_${roomId}`) // SỬA
+            supabaseChannel = supabaseClient.channel(`room_${roomId}`)
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
                     if (payload.new && payload.new.room_data) {
                         handleRoomStateUpdate(payload.new.room_data);
@@ -477,7 +494,7 @@
                 updatedData.bellStatus = 'locked_winner';
             }
 
-            const { error } = await supabaseClient // SỬA
+            const { error } = await supabaseClient
                 .from('rooms')
                 .update({ room_data: updatedData })
                 .eq('id', currentRoomId);

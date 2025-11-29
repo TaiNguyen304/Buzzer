@@ -351,7 +351,7 @@
       max-height: none;
     }
 
-    /* --- CẬP NHẬT MỚI: CSS CHO NGƯỜI NHANH NHẤT (Màu tím, chữ đậm trắng) --- */
+    /* --- CSS CHO NGƯỜI NHANH NHẤT (Màu tím, chữ đậm trắng) --- */
     .fastest-buzz {
       background-color: purple !important;
       color: white !important;
@@ -388,7 +388,7 @@
       <button id="createRoomBtn">Tạo phòng</button>
       <button id="joinRoomBtn">Tham gia phòng (Quản lý)</button>
       <div id="roomCodeDisplay">Mã phòng: </div>
-      <button id="showParticipantsBtn">Danh sách tham gia</button>
+      <button id="showParticipantsBtn" disabled>Danh sách tham gia</button>
     </div>
 
     <div id="bellControlSection" style="display: none;">
@@ -517,7 +517,6 @@
     // --- CẤU HÌNH SUPABASE (THAY THẾ BẰNG THÔNG TIN CỦA BẠN) ---
     const SUPABASE_URL = 'https://gyyjabuewruokczpqekz.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_K7-yvCKpi5qiV_N0WC3rMg_eG8MEHSV';
-    // ĐÃ SỬA LỖI: Đổi tên biến thành supabaseClient để tránh xung đột với đối tượng toàn cục 'supabase'
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     // -------------------------------------------------------------
 
@@ -553,7 +552,6 @@
     function closeModal(modalId) { document.getElementById(modalId).style.display = 'none'; }
     function openModal(modalId) { document.getElementById(modalId).style.display = 'flex'; }
 
-    // [FIX 2: Đảm bảo các nút được kích hoạt/vô hiệu hóa lại theo trạng thái phòng]
     function enableButtons() {
       const isController = isHost || isManager;
       const hasRoom = !!currentRoomId;
@@ -574,6 +572,8 @@
       supabaseChannel = supabaseClient.channel(`room_${roomId}`)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
           if (payload.new && payload.new.room_data) {
+            // [FIX DEBUG] Ghi log khi nhận Realtime Update
+            console.log("Realtime Update Received. New participants count (total in room):", payload.new.room_data.participants ? payload.new.room_data.participants.length : 0);
             handleRoomStateUpdate(payload.new.room_data);
           }
         })
@@ -609,9 +609,9 @@
 
       const lockedFromServer = Array.isArray(data.lockedUsers) ? data.lockedUsers : null;
       updateLockedUsersUI(lockedFromServer);
-      
+
       // Đảm bảo các nút được kích hoạt lại sau khi nhận update từ DB
-      enableButtons(); 
+      enableButtons();
     }
 
     // --- HÀNH ĐỘNG HOST ---
@@ -689,13 +689,23 @@
         if (!participants.some(p => p.userId === userId)) {
           participants.push(newParticipant);
           // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
-          await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants } }).eq('id', roomId);
+          const { error: updateError } = await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants } }).eq('id', roomId);
+
+          if (updateError) {
+             console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError);
+             alert("Lỗi khi cập nhật danh sách tham gia.");
+             return;
+          }
+          
+          // [FIX DEBUG] Ghi log sau khi Manager gửi update lên DB
+          console.log(`Manager [${username}] đã gửi cập nhật tham gia thành công lên Supabase.`);
         }
 
         currentRoomId = roomId;
         isHost = false;
         isManager = true;
-        currentRoomData = room.room_data;
+        // KHÔNG cập nhật currentRoomData ở đây. Để Realtime Listener làm việc đó.
+        // currentRoomData = room.room_data; 
 
         setupRealtimeListener(roomId);
 
@@ -704,13 +714,17 @@
         document.getElementById('createRoomBtn').textContent = `Đã tham gia: ${currentRoomId}`;
         document.getElementById('createRoomBtn').disabled = true;
         document.getElementById('joinRoomBtn').style.display = 'none';
-        enableButtons();
+        
+        enableButtons(); // Kích hoạt nút ngay lập tức
         document.getElementById('bellControlSection').style.display = 'block';
-        handleRoomStateUpdate(room.room_data);
+
+        // KHÔNG gọi handleRoomStateUpdate ở đây, chỉ rely vào Realtime.
+        // handleRoomStateUpdate(room.room_data); 
         closeModal('joinRoomModal');
 
       } catch (e) {
         console.error("Lỗi tham gia phòng:", e);
+        alert("Lỗi tham gia phòng. Kiểm tra console để biết thêm chi tiết.");
       }
     }
 
@@ -851,7 +865,7 @@
 
       if (isMultipleBuzz) {
         buzzes.forEach(buzz => {
-          const buzzTime = buzz.time || 0;
+          const buzzTime = buzz.time !== undefined && buzz.time !== null ? buzz.time : 0;
           const currentLatest = latestBuzzPerUser.get(buzz.username);
           if (currentLatest === undefined || buzzTime > (currentLatest.time || 0)) {
             latestBuzzPerUser.set(buzz.username, buzz);
