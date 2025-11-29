@@ -683,39 +683,54 @@
         }
 
         const participants = room.room_data.participants || [];
-        const newParticipant = { userId, username, isManager: true, socketId: userId };
+        const newParticipant = { userId, username, isManager: true, isHost: false }; // Thêm isHost: false cho Manager
 
-        // Chỉ thêm nếu chưa có trong danh sách
-        if (!participants.some(p => p.userId === userId)) {
-          participants.push(newParticipant);
-          // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
-          const { error: updateError } = await supabaseClient
-             .from('rooms')
-             .update({ 
+        // Lọc bỏ phiên Manager/Contestant cũ nếu có cùng userId
+        let participantFound = false;
+        const normalizedUsername = String(username).toLowerCase();
+
+        const filteredParticipants = participants.filter(p => {
+          if (p.isHost) return true; // Luôn giữ Host
+          if (String(p.userId) === String(userId)) {
+              participantFound = true;
+              return false; // Loại bỏ phiên cũ nếu trùng userId (trường hợp Manager tham gia lại)
+          }
+          if (!p.isHost && !p.isManager && String(p.username).toLowerCase() === normalizedUsername) {
+              // Loại bỏ phiên thí sinh cũ nếu Manager dùng cùng username
+              return false;
+          }
+          return true;
+        });
+
+        // Luôn thêm phiên làm việc mới
+        filteredParticipants.push(newParticipant);
+
+        // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
+        const { error: updateError } = await supabaseClient
+            .from('rooms')
+            .update({ 
                 room_data: { 
                     ...room.room_data, 
-                    participants: participants, 
-                    last_join: new Date().toISOString() // ĐÃ THÊM: Trường phụ trợ để đảm bảo Realtime kích hoạt
-                } 
-             })
-             .eq('id', roomId);
+                    participants: filteredParticipants, 
+                },
+                updated_at: new Date().toISOString() // CẬP NHẬT CỘT ĐỘC LẬP
+            })
+            .eq('id', roomId);
 
-          if (updateError) {
-             console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError);
-             alert("Lỗi khi cập nhật danh sách tham gia.");
-             return;
-          }
-          
-          // [FIX DEBUG] Ghi log sau khi Manager gửi update lên DB
-          console.log(`Manager [${username}] đã gửi cập nhật tham gia thành công lên Supabase.`);
+        if (updateError) {
+           console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError);
+           alert("Lỗi khi cập nhật danh sách tham gia.");
+           return;
         }
+        
+        // [FIX DEBUG] Ghi log sau khi Manager gửi update lên DB
+        console.log(`Manager [${username}] đã gửi cập nhật tham gia thành công lên Supabase. Số người tham gia: ${filteredParticipants.length}`);
+
 
         currentRoomId = roomId;
         isHost = false;
         isManager = true;
-        // KHÔNG cập nhật currentRoomData ở đây. Để Realtime Listener làm việc đó.
-        // currentRoomData = room.room_data; 
-
+        
         setupRealtimeListener(roomId);
 
         document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`;
@@ -724,11 +739,12 @@
         document.getElementById('createRoomBtn').disabled = true;
         document.getElementById('joinRoomBtn').style.display = 'none';
         
-        enableButtons(); // Kích hoạt nút ngay lập tức
+        enableButtons(); 
         document.getElementById('bellControlSection').style.display = 'block';
 
-        // KHÔNG gọi handleRoomStateUpdate ở đây, chỉ rely vào Realtime.
-        // handleRoomStateUpdate(room.room_data); 
+        // Lấy lại dữ liệu phòng mới nhất từ Supabase (Optional, Realtime sẽ làm điều này)
+        // để cập nhật currentRoomData ngay lập tức.
+        
         closeModal('joinRoomModal');
 
       } catch (e) {
@@ -754,6 +770,7 @@
       }
 
       let updatedData = { ...room.room_data };
+      let updatePayload = { updated_at: new Date().toISOString() }; // Luôn cập nhật cột độc lập
 
       // 2. Xử lý các trường dữ liệu cần cập nhật
       if (data.reset) {
@@ -784,10 +801,12 @@
         updatedData.bellOpenTimestamp = new Date().toISOString();
       }
 
+      updatePayload.room_data = updatedData;
+
       // 3. Cập nhật lên Supabase
       const { error: updateError } = await supabaseClient
         .from('rooms')
-        .update({ room_data: updatedData })
+        .update(updatePayload)
         .eq('id', currentRoomId);
 
       if (updateError) {

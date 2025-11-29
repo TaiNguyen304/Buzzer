@@ -329,7 +329,6 @@
                 
                 // =====================================================================
                 // SỬA LỖI: Cập nhật danh sách người tham gia bằng cách LỌC BỎ phiên cũ và THÊM phiên mới
-                // Thao tác này đảm bảo sự thay đổi về cấu trúc mảng để kích hoạt Realtime.
                 // =====================================================================
                 const normalizedUsername = String(inputUsername).toLowerCase();
                 let participantFound = false;
@@ -361,8 +360,9 @@
                         room_data: { 
                             ...currentRoomData, 
                             participants: participants,
-                            last_join: new Date().toISOString() // ĐÃ THÊM: Trường phụ trợ để đảm bảo Realtime kích hoạt
-                        } 
+                        },
+                        // SỬA: Cập nhật cột độc lập để đảm bảo Realtime kích hoạt trên tất cả các máy
+                        updated_at: new Date().toISOString()
                     })
                     .eq('id', roomId);
 
