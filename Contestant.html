@@ -260,8 +260,9 @@
     <script>
         // --- CẤU HÌNH SUPABASE (THAY THẾ BẰNG THÔNG TIN CỦA BẠN) ---
         const SUPABASE_URL = 'https://gyyjabuewruokczpqekz.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5eWphYnVld3J1b2tjenBxZWt6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzOTk5NTksImV4cCI6MjA3OTk3NTk1OX0.bCsceRhW02FySQOdk61XnMLahTWtxCZIcpvvSIUNuIU';
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5eWphYnVld3J1b2tjenBxZWt6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzOTk5NTksImV4cCI6MjA3OTk3NTU5OX0.bCsceRhW02FySQOdk61XnMLahTWtxCZIcpvvSIUNuIU';
+        // ĐÃ SỬA LỖI: Đổi tên biến thành supabaseClient để tránh xung đột với đối tượng toàn cục 'supabase'
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         // -------------------------------------------------------------
 
         let userId = null;
@@ -308,11 +309,11 @@
             errorMessage.textContent = "Đang tham gia phòng...";
             document.getElementById('joinRoomBtn').disabled = true;
 
-            const newParticipant = { userId, username: inputUsername, socketId: userId }; // Dùng userId làm socketId giả
+            const newParticipant = { userId, username: inputUsername, socketId: userId };
             
             try {
                 // 1. Lấy trạng thái phòng hiện tại
-                let { data: room, error } = await supabase
+                let { data: room, error } = await supabaseClient // SỬA
                     .from('rooms')
                     .select('room_data')
                     .eq('id', roomId)
@@ -329,7 +330,7 @@
                 // 2. Cập nhật danh sách người tham gia (nếu chưa có)
                 if (!participants.some(p => p.userId === userId || p.username === inputUsername)) {
                     participants.push(newParticipant);
-                    const { error: updateError } = await supabase
+                    const { error: updateError } = await supabaseClient // SỬA
                         .from('rooms')
                         .update({ room_data: { ...currentRoomData, participants: participants } })
                         .eq('id', roomId);
@@ -363,9 +364,9 @@
         }
 
         function setupRealtimeListener(roomId) {
-            if (supabaseChannel) { supabase.removeChannel(supabaseChannel); }
+            if (supabaseChannel) { supabaseClient.removeChannel(supabaseChannel); } // SỬA
 
-            supabaseChannel = supabase.channel(`room_${roomId}`)
+            supabaseChannel = supabaseClient.channel(`room_${roomId}`) // SỬA
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
                     if (payload.new && payload.new.room_data) {
                         handleRoomStateUpdate(payload.new.room_data);
@@ -476,7 +477,7 @@
                 updatedData.bellStatus = 'locked_winner';
             }
 
-            const { error } = await supabase
+            const { error } = await supabaseClient // SỬA
                 .from('rooms')
                 .update({ room_data: updatedData })
                 .eq('id', currentRoomId);
