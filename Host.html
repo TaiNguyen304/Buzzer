@@ -77,6 +77,11 @@
       color: #FFFFFF !important;
     }
 
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 1;
+    }
+
     #createRoomBtn,
     #showParticipantsBtn {
       background-color: purple;
@@ -383,7 +388,7 @@
       <button id="createRoomBtn">Tạo phòng</button>
       <button id="joinRoomBtn">Tham gia phòng (Quản lý)</button>
       <div id="roomCodeDisplay">Mã phòng: </div>
-      <button id="showParticipantsBtn" disabled>Danh sách tham gia</button>
+      <button id="showParticipantsBtn">Danh sách tham gia</button>
     </div>
 
     <div id="bellControlSection" style="display: none;">
@@ -548,6 +553,7 @@
     function closeModal(modalId) { document.getElementById(modalId).style.display = 'none'; }
     function openModal(modalId) { document.getElementById(modalId).style.display = 'flex'; }
 
+    // [FIX 2: Đảm bảo các nút được kích hoạt/vô hiệu hóa lại theo trạng thái phòng]
     function enableButtons() {
       const isController = isHost || isManager;
       const hasRoom = !!currentRoomId;
@@ -563,9 +569,9 @@
 
     // --- REALTIME & CẬP NHẬT TRẠNG THÁI ---
     function setupRealtimeListener(roomId) {
-      if (supabaseChannel) { supabaseClient.removeChannel(supabaseChannel); } // SỬA
+      if (supabaseChannel) { supabaseClient.removeChannel(supabaseChannel); }
 
-      supabaseChannel = supabaseClient.channel(`room_${roomId}`) // SỬA
+      supabaseChannel = supabaseClient.channel(`room_${roomId}`)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
           if (payload.new && payload.new.room_data) {
             handleRoomStateUpdate(payload.new.room_data);
@@ -574,11 +580,21 @@
         .subscribe();
     }
 
+    // [FIX 1 & 2: Cập nhật danh sách người tham gia tự động và kích hoạt lại nút]
     function handleRoomStateUpdate(data) {
       currentRoomData = data;
+      // Cập nhật danh sách tham gia
       currentParticipants = Array.isArray(data.participants) ? data.participants : [];
       const playerCount = currentParticipants.filter(p => !p.isHost && !p.isManager).length;
       document.getElementById('showParticipantsBtn').textContent = `Danh sách tham gia (${playerCount})`;
+
+      // Tự động cập nhật danh sách nếu Modal đang mở
+      if (document.getElementById('participantsModal').style.display !== 'none') {
+        renderParticipantsList();
+      }
+      if (document.getElementById('lockUsersModal').style.display !== 'none') {
+        renderLockUsersList();
+      }
 
       updateBellUI(data.bellStatus);
       updateBellOptionsUI(data.options);
@@ -593,6 +609,9 @@
 
       const lockedFromServer = Array.isArray(data.lockedUsers) ? data.lockedUsers : null;
       updateLockedUsersUI(lockedFromServer);
+      
+      // Đảm bảo các nút được kích hoạt lại sau khi nhận update từ DB
+      enableButtons(); 
     }
 
     // --- HÀNH ĐỘNG HOST ---
@@ -614,7 +633,7 @@
       };
 
       try {
-        const { error } = await supabaseClient // SỬA
+        const { error } = await supabaseClient
           .from('rooms')
           .insert([{ id: roomId, room_data: initialRoomData }]);
 
@@ -652,7 +671,7 @@
       if (!roomId || !username || !userId) return;
 
       try {
-        const { data: room, error } = await supabaseClient // SỬA
+        const { data: room, error } = await supabaseClient
           .from('rooms')
           .select('room_data')
           .eq('id', roomId)
@@ -666,9 +685,11 @@
         const participants = room.room_data.participants || [];
         const newParticipant = { userId, username, isManager: true, socketId: userId };
 
+        // Chỉ thêm nếu chưa có trong danh sách
         if (!participants.some(p => p.userId === userId)) {
           participants.push(newParticipant);
-          await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants } }).eq('id', roomId); // SỬA
+          // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
+          await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants } }).eq('id', roomId);
         }
 
         currentRoomId = roomId;
@@ -693,11 +714,12 @@
       }
     }
 
-    async function updateRoom(data) {
+    // Đã thay đổi tên hàm thành updateRoomData để rõ ràng hơn
+    async function updateRoomData(data) {
       if (!currentRoomId || (!isHost && !isManager)) return;
 
-      // 1. Lấy trạng thái hiện tại
-      const { data: room, error: fetchError } = await supabaseClient // SỬA
+      // 1. Lấy trạng thái hiện tại (Đảm bảo Manager không ghi đè dữ liệu)
+      const { data: room, error: fetchError } = await supabaseClient
         .from('rooms')
         .select('room_data')
         .eq('id', currentRoomId)
@@ -740,7 +762,7 @@
       }
 
       // 3. Cập nhật lên Supabase
-      const { error: updateError } = await supabaseClient // SỬA
+      const { error: updateError } = await supabaseClient
         .from('rooms')
         .update({ room_data: updatedData })
         .eq('id', currentRoomId);
@@ -763,13 +785,13 @@
       }
 
       // Cập nhật lên Supabase
-      await updateRoom({ bellStatus: status, reset: false });
+      await updateRoomData({ bellStatus: status, reset: false });
     }
 
     async function lockBell() {
       if (!currentRoomId || (!isHost && !isManager)) return;
       if (bellTimer) clearTimeout(bellTimer);
-      await updateRoom({ bellStatus: "locked" });
+      await updateRoomData({ bellStatus: "locked" });
     }
 
     async function resetBell() {
@@ -783,7 +805,7 @@
       const payload = { reset: true };
       if (nextStatus === 'open_infinite') { payload.bellStatus = 'open_infinite'; }
 
-      await updateRoom(payload);
+      await updateRoomData(payload);
 
       if (bellTimer) clearTimeout(bellTimer);
     }
@@ -896,7 +918,7 @@
         if (p.isHost) { style += "color: #2563EB;"; roleClass = "text-blue-600"; }
         else if (p.isManager) { style += "color: #DC2626;"; roleClass = "text-red-600"; }
         else { style += "color: #000000;"; }
-        return `<p class="${roleClass}" style="${style}">${p.username}</p>`;
+        return `<p class="${roleClass}" style="${style}">${p.username} (${p.isHost ? 'Host' : p.isManager ? 'Manager' : 'Contestant'})</p>`;
       }).join('');
     }
 
@@ -949,13 +971,13 @@
         if (v.startsWith('uname:')) { lockedUsers.push(decodeURIComponent(v.slice(6))); }
         else { lockedUsers.push(v); }
       });
-      await updateRoom({ lockedUsers: lockedUsers });
+      await updateRoomData({ lockedUsers: lockedUsers });
       closeModal('lockUsersModal');
     }
 
     async function resetAllLocks() {
       if (!currentRoomId || (!isHost && !isManager)) return;
-      await updateRoom({ lockedUsers: [] });
+      await updateRoomData({ lockedUsers: [] });
       renderLockUsersList();
     }
 
@@ -963,7 +985,7 @@
       if (!currentRoomId || (!isHost && !isManager)) return;
       const buzzCount = document.querySelector('input[name="buzzCount"]:checked').value;
       const buzzMode = document.querySelector('input[name="buzzMode"]:checked').value;
-      await updateRoom({ options: { buzzCount, buzzMode } });
+      await updateRoomData({ options: { buzzCount, buzzMode } });
       closeModal('bellOptionsModal');
     }
 
@@ -972,6 +994,7 @@
     document.getElementById('joinRoomBtn').addEventListener('click', () => { openModal('joinRoomModal'); });
     document.getElementById('closeJoinModalBtn').addEventListener('click', () => { closeModal('joinRoomModal'); });
     document.getElementById('confirmJoinBtn').addEventListener('click', confirmJoinRoom);
+    // Khi bấm nút danh sách, cập nhật danh sách trước khi mở modal
     document.getElementById('showParticipantsBtn').addEventListener('click', () => { renderParticipantsList(); openModal('participantsModal'); });
     document.getElementById('showLockUsersBtn').addEventListener('click', () => { renderLockUsersList(); openModal('lockUsersModal'); });
     document.getElementById('showBellOptionsBtn').addEventListener('click', () => { updateBellOptionsUI(currentRoomData.options); openModal('bellOptionsModal'); });
