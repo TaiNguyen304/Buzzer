@@ -262,7 +262,6 @@
         const SUPABASE_URL = 'https://gyyjabuewruokczpqekz.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_K7-yvCKpi5qiV_N0WC3rMg_eG8MEHSV';
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        // -------------------------------------------------------------
 
         let userId = null;
         let currentRoomId = null;
@@ -327,9 +326,6 @@
                 // 2. Chuẩn bị thông tin người tham gia mới (userId luôn mới)
                 const newParticipant = { userId, username: inputUsername, isHost: false, isManager: false };
                 
-                // =====================================================================
-                // SỬA LỖI: Cập nhật danh sách người tham gia bằng cách LỌC BỎ phiên cũ và THÊM phiên mới
-                // =====================================================================
                 const normalizedUsername = String(inputUsername).toLowerCase();
                 let participantFound = false;
 
@@ -354,6 +350,7 @@
 
 
                 // Luôn gửi cập nhật lên Supabase để kích hoạt Realtime cho Host/Manager
+                // FIX: Bổ sung updated_at và participants_changed_at
                 const { error: updateError } = await supabaseClient
                     .from('rooms')
                     .update({ 
@@ -361,8 +358,8 @@
                             ...currentRoomData, 
                             participants: participants,
                         },
-                        // SỬA: Cập nhật cột độc lập để đảm bảo Realtime kích hoạt trên tất cả các máy
-                        updated_at: new Date().toISOString()
+                        updated_at: new Date().toISOString(),
+                        participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
                     })
                     .eq('id', roomId);
 
@@ -507,11 +504,16 @@
             if (currentRoomData.options.buzzMode === 'single-winner') {
                 updatedData.bellStatus = 'locked_winner';
             }
-
+            
             const { error } = await supabaseClient
                 .from('rooms')
-                .update({ room_data: updatedData })
+                .update({ 
+                    room_data: updatedData,
+                    updated_at: new Date().toISOString(), // Đảm bảo cột hệ thống được cập nhật
+                    participants_changed_at: new Date().toISOString() // Đảm bảo Realtime kích hoạt (nếu bạn đã thêm cột này)
+                })
                 .eq('id', currentRoomId);
+
 
             if (error) {
                 console.error("Lỗi khi bấm chuông:", error);

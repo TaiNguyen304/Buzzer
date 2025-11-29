@@ -633,9 +633,15 @@
       };
 
       try {
+        // FIX: THÊM updated_at VÀ participants_changed_at vào INSERT để khắc phục lỗi 400 nếu cột là NOT NULL
         const { error } = await supabaseClient
           .from('rooms')
-          .insert([{ id: roomId, room_data: initialRoomData }]);
+          .insert([{ 
+            id: roomId, 
+            room_data: initialRoomData,
+            updated_at: new Date().toISOString(), 
+            participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
+          }]);
 
         if (error) {
           console.error("Lỗi khi tạo phòng:", error);
@@ -683,22 +689,14 @@
         }
 
         const participants = room.room_data.participants || [];
-        const newParticipant = { userId, username, isManager: true, isHost: false }; // Thêm isHost: false cho Manager
-
-        // Lọc bỏ phiên Manager/Contestant cũ nếu có cùng userId
-        let participantFound = false;
+        const newParticipant = { userId, username, isManager: true, isHost: false }; 
         const normalizedUsername = String(username).toLowerCase();
 
+        // Lọc bỏ phiên Manager/Contestant cũ nếu có cùng userId hoặc username trùng
         const filteredParticipants = participants.filter(p => {
-          if (p.isHost) return true; // Luôn giữ Host
-          if (String(p.userId) === String(userId)) {
-              participantFound = true;
-              return false; // Loại bỏ phiên cũ nếu trùng userId (trường hợp Manager tham gia lại)
-          }
-          if (!p.isHost && !p.isManager && String(p.username).toLowerCase() === normalizedUsername) {
-              // Loại bỏ phiên thí sinh cũ nếu Manager dùng cùng username
-              return false;
-          }
+          if (p.isHost) return true; 
+          if (String(p.userId) === String(userId)) return false; 
+          if (!p.isHost && !p.isManager && String(p.username).toLowerCase() === normalizedUsername) return false;
           return true;
         });
 
@@ -706,6 +704,7 @@
         filteredParticipants.push(newParticipant);
 
         // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
+        // FIX: Bổ sung updated_at và participants_changed_at
         const { error: updateError } = await supabaseClient
             .from('rooms')
             .update({ 
@@ -713,7 +712,8 @@
                     ...room.room_data, 
                     participants: filteredParticipants, 
                 },
-                updated_at: new Date().toISOString() // CẬP NHẬT CỘT ĐỘC LẬP
+                updated_at: new Date().toISOString(), 
+                participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
             })
             .eq('id', roomId);
 
@@ -742,9 +742,6 @@
         enableButtons(); 
         document.getElementById('bellControlSection').style.display = 'block';
 
-        // Lấy lại dữ liệu phòng mới nhất từ Supabase (Optional, Realtime sẽ làm điều này)
-        // để cập nhật currentRoomData ngay lập tức.
-        
         closeModal('joinRoomModal');
 
       } catch (e) {
@@ -770,7 +767,6 @@
       }
 
       let updatedData = { ...room.room_data };
-      let updatePayload = { updated_at: new Date().toISOString() }; // Luôn cập nhật cột độc lập
 
       // 2. Xử lý các trường dữ liệu cần cập nhật
       if (data.reset) {
@@ -801,12 +797,15 @@
         updatedData.bellOpenTimestamp = new Date().toISOString();
       }
 
-      updatePayload.room_data = updatedData;
-
       // 3. Cập nhật lên Supabase
+      // FIX: Bổ sung updated_at và participants_changed_at
       const { error: updateError } = await supabaseClient
         .from('rooms')
-        .update(updatePayload)
+        .update({ 
+            room_data: updatedData,
+            updated_at: new Date().toISOString(), 
+            participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
+        })
         .eq('id', currentRoomId);
 
       if (updateError) {
