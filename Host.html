@@ -644,7 +644,7 @@
           }]);
 
         if (error) {
-          console.error("Lỗi khi tạo phòng:", error);
+          console.error("Lỗi khi tạo phòng:", error); // Bỏ alert
           document.getElementById('createRoomBtn').disabled = false;
           return;
         }
@@ -684,7 +684,7 @@
           .single();
 
         if (error || !room) {
-          alert("Phòng không tồn tại.");
+          console.error("Phòng không tồn tại hoặc lỗi truy vấn:", error); // Bỏ alert
           return;
         }
 
@@ -718,8 +718,7 @@
             .eq('id', roomId);
 
         if (updateError) {
-           console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError);
-           alert("Lỗi khi cập nhật danh sách tham gia.");
+           console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError); // Bỏ alert
            return;
         }
         
@@ -745,8 +744,7 @@
         closeModal('joinRoomModal');
 
       } catch (e) {
-        console.error("Lỗi tham gia phòng:", e);
-        alert("Lỗi tham gia phòng. Kiểm tra console để biết thêm chi tiết.");
+        console.error("Lỗi tham gia phòng:", e); // Bỏ alert
       }
     }
 
@@ -954,11 +952,10 @@
         return (a.username || '').localeCompare(b.username || '');
       });
 
-      // Bắt đầu sửa đổi ở đây:
       document.getElementById('participantsList').innerHTML = sortedParticipants.map(p => {
         let style = "font-weight: bold; font-size: 1.125rem; padding: 0.5rem;";
         let roleClass = "";
-        let roleName = ""; // Biến mới để lưu tên vai trò đã dịch
+        let roleName = ""; 
 
         if (p.isHost) { 
             style += "color: #2563EB;"; 
@@ -967,15 +964,14 @@
         } else if (p.isManager) { 
             style += "color: #DC2626;"; 
             roleClass = "text-red-600"; 
-            roleName = "Quản lý"; // Đã sửa từ Manager -> Quản lý
+            roleName = "Quản lý"; // ĐÃ SỬA
         } else { 
             style += "color: #000000;";
-            roleName = "Thí sinh"; // Đã sửa từ Contestant -> Thí sinh
+            roleName = "Thí sinh"; // ĐÃ SỬA
         }
         
         return `<p class="${roleClass}" style="${style}">${p.username} (${roleName})</p>`;
       }).join('');
-      // Kết thúc sửa đổi
     }
 
     function renderLockUsersList() {
