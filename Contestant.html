@@ -253,7 +253,21 @@
                 <button id="buzzerBtn" disabled>Đang kết nối...</button>
                 <div id="buzzerStatus" class="status-waiting">Vui lòng chờ Host...</div>
             </div>
-        </div>
+            
+            <button id="leaveRoomBtn" style="
+                margin-top: 2rem; 
+                padding: 0.75rem 1rem;
+                border-radius: 0.5rem;
+                font-weight: bold;
+                background-color: #EF4444; /* Red color */
+                color: #FFFFFF;
+                width: 100%;
+                font-size: 1.125rem;
+                border: none;
+                cursor: pointer;
+                transition: background-color 200ms;
+            ">Rời phòng</button>
+            </div>
 
     </div>
 
@@ -522,8 +536,100 @@
             // Realtime listener sẽ cập nhật UI sau khi DB được cập nhật
         }
 
+        // HÀM MỚI ĐƯỢC THÊM: leaveRoom()
+        async function leaveRoom() {
+            if (!currentRoomId || !userId) {
+                console.warn("Không thể rời phòng: Thiếu Room ID hoặc User ID.");
+                // Dù sao cũng reset UI
+                loginSection.style.display = 'block';
+                buzzerSection.style.display = 'none';
+                userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Tạo ID mới
+                return;
+            }
+            
+            console.log(`Đang rời phòng ${currentRoomId} với userId ${userId}...`);
+
+            // 1. Lấy dữ liệu phòng hiện tại để đảm bảo danh sách participants mới nhất
+            let { data: room, error: fetchError } = await supabaseClient
+                .from('rooms')
+                .select('room_data')
+                .eq('id', currentRoomId)
+                .single();
+            
+            if (fetchError || !room) {
+                console.error("Lỗi khi fetch dữ liệu phòng để rời:", fetchError);
+                // Dù có lỗi DB, vẫn cố gắng reset local state
+            } else {
+                let currentParticipants = room.room_data.participants || [];
+                
+                // Lọc bỏ phiên làm việc hiện tại (dựa trên userId)
+                const newParticipants = currentParticipants.filter(p => String(p.userId) !== String(userId));
+
+                // 2. Cập nhật lại danh sách người tham gia trên Supabase
+                // Chỉ cập nhật nếu danh sách thực sự thay đổi (đã tìm thấy và xóa)
+                if (newParticipants.length < currentParticipants.length) {
+                    try {
+                        const { error: updateError } = await supabaseClient
+                            .from('rooms')
+                            .update({
+                                room_data: {
+                                    ...room.room_data,
+                                    participants: newParticipants,
+                                },
+                                updated_at: new Date().toISOString(),
+                                participants_changed_at: new Date().toISOString()
+                            })
+                            .eq('id', currentRoomId);
+
+                        if (updateError) {
+                            console.error("Lỗi khi cập nhật danh sách người tham gia sau khi rời phòng:", updateError);
+                        }
+                    } catch (e) {
+                        console.error("Lỗi cập nhật Supabase khi rời phòng:", e);
+                    }
+                } else {
+                    console.log("Phiên làm việc không có trong DB, chỉ reset local state.");
+                }
+            }
+            
+            // 3. Xóa kênh Realtime
+            if (supabaseChannel) {
+                supabaseClient.removeChannel(supabaseChannel);
+                supabaseChannel = null;
+            }
+
+            // 4. Reset trạng thái cục bộ
+            currentRoomId = null;
+            username = null;
+            currentRoomData = null;
+            iHaveBuzzed = false;
+            myBuzzTime = null;
+            previousBuzzCount = 0;
+            
+            // 5. Cập nhật UI và tạo userId mới
+            loginSection.style.display = 'block';
+            buzzerSection.style.display = 'none';
+            document.getElementById('roomCodeInput').value = ""; // Xóa mã phòng
+            document.getElementById('usernameInput').value = ""; // Xóa username
+            setErrorMessage(""); // Xóa thông báo lỗi cũ
+            userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Tạo ID mới cho lần đăng nhập sau
+            document.getElementById('joinRoomBtn').textContent = 'Xác nhận';
+            document.getElementById('joinRoomBtn').disabled = false;
+            setBuzzerState("locked", "Vui lòng nhập thông tin."); // Đặt lại trạng thái buzzer
+            
+            console.log("Đã rời phòng thành công và reset local state.");
+        }
+        // END HÀM MỚI
+
         document.getElementById('joinRoomBtn').addEventListener('click', joinRoom);
         buzzerBtn.addEventListener('click', handleBuzzerClick);
+        
+        // THÊM LISTENER CHO NÚT RỜI PHÒNG
+        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+        if (leaveRoomBtn) {
+             leaveRoomBtn.addEventListener('click', leaveRoom);
+        }
+        
         setBuzzerState("locked", "Vui lòng nhập thông tin.");
     </script>
 </body>

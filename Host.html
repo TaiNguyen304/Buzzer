@@ -527,6 +527,7 @@
     let currentParticipants = [];
     let isHost = false;
     let isManager = false;
+    let managerUsername = null; // Thêm biến để lưu tên Manager
     let previousBuzzCount = 0;
     let supabaseChannel = null;
 
@@ -613,98 +614,29 @@
       // Đảm bảo các nút được kích hoạt lại sau khi nhận update từ DB
       enableButtons();
     }
+    
+    // --- CHỨC NĂNG RỜI PHÒNG (CLEANUP) CHO MANAGER ---
+    async function leaveRoom() {
+        if (!currentRoomId || !userId || !isManager) return;
 
-    // --- HÀNH ĐỘNG HOST ---
+        // 1. Lấy trạng thái phòng hiện tại
+        const { data: room, error: fetchError } = await supabaseClient
+            .from('rooms')
+            .select('room_data')
+            .eq('id', currentRoomId)
+            .single();
 
-    async function createRoom() {
-      if (!userId) return;
-      document.getElementById('createRoomBtn').disabled = true;
-
-      const roomId = Math.floor(100000 + Math.random() * 900000).toString();
-      const initialRoomData = {
-        id: roomId,
-        bellStatus: 'locked',
-        bellSessionId: Date.now().toString(),
-        bellOpenTimestamp: null,
-        buzzes: [],
-        lockedUsers: [],
-        options: { buzzCount: 'single', buzzMode: 'single-winner' },
-        participants: [{ userId: userId, username: 'Host', isHost: true }]
-      };
-
-      try {
-        // FIX: Đảm bảo cả updated_at và participants_changed_at đều có giá trị trong INSERT
-        const { error } = await supabaseClient
-          .from('rooms')
-          .insert([{ 
-            id: roomId, 
-            room_data: initialRoomData,
-            updated_at: new Date().toISOString(), 
-            participants_changed_at: new Date().toISOString()
-          }]);
-
-        if (error) {
-          console.error("Lỗi khi tạo phòng:", error); // Bỏ alert
-          document.getElementById('createRoomBtn').disabled = false;
-          return;
+        if (fetchError || !room) {
+            console.error("Lỗi khi lấy trạng thái phòng để Manager rời:", fetchError);
+            return;
         }
 
-        currentRoomId = roomId;
-        isHost = true;
-        isManager = false;
-        currentRoomData = initialRoomData;
+        const currentParticipants = room.room_data.participants || [];
+        
+        // 2. Lọc bỏ người dùng hiện tại
+        const filteredParticipants = currentParticipants.filter(p => String(p.userId) !== String(userId));
 
-        setupRealtimeListener(roomId);
-
-        document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`;
-        document.getElementById('roomCodeDisplay').style.display = 'block';
-        document.getElementById('createRoomBtn').textContent = `Mã phòng: ${currentRoomId}`;
-        document.getElementById('createRoomBtn').disabled = true;
-        document.getElementById('joinRoomBtn').style.display = 'none';
-        enableButtons();
-        updateBellUI("locked");
-        document.getElementById('bellControlSection').style.display = 'block';
-
-      } catch (e) {
-        console.error("Lỗi tạo phòng:", e);
-        document.getElementById('createRoomBtn').disabled = false;
-      }
-    }
-
-    async function confirmJoinRoom() {
-      const roomId = document.getElementById('joinRoomCodeInput').value.trim();
-      const username = document.getElementById('joinUsernameInput').value.trim();
-      if (!roomId || !username || !userId) return;
-
-      try {
-        const { data: room, error } = await supabaseClient
-          .from('rooms')
-          .select('room_data')
-          .eq('id', roomId)
-          .single();
-
-        if (error || !room) {
-          console.error("Phòng không tồn tại hoặc lỗi truy vấn:", error); // Bỏ alert
-          return;
-        }
-
-        const participants = room.room_data.participants || [];
-        const newParticipant = { userId, username, isManager: true, isHost: false }; 
-        const normalizedUsername = String(username).toLowerCase();
-
-        // Lọc bỏ phiên Manager/Contestant cũ nếu có cùng userId hoặc username trùng
-        const filteredParticipants = participants.filter(p => {
-          if (p.isHost) return true; 
-          if (String(p.userId) === String(userId)) return false; 
-          if (!p.isHost && !p.isManager && String(p.username).toLowerCase() === normalizedUsername) return false;
-          return true;
-        });
-
-        // Luôn thêm phiên làm việc mới
-        filteredParticipants.push(newParticipant);
-
-        // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
-        // FIX: Bổ sung updated_at và participants_changed_at
+        // 3. Cập nhật lại danh sách người tham gia
         const { error: updateError } = await supabaseClient
             .from('rooms')
             .update({ 
@@ -715,38 +647,15 @@
                 updated_at: new Date().toISOString(), 
                 participants_changed_at: new Date().toISOString()
             })
-            .eq('id', roomId);
+            .eq('id', currentRoomId);
 
         if (updateError) {
-           console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError); // Bỏ alert
-           return;
+            console.error("Lỗi khi Manager tự động rời phòng:", updateError);
+        } else {
+            console.log(`Quản lý ${managerUsername} (ID: ${userId}) đã tự động rời phòng ${currentRoomId}.`);
         }
-        
-        // [FIX DEBUG] Ghi log sau khi Manager gửi update lên DB
-        console.log(`Manager [${username}] đã gửi cập nhật tham gia thành công lên Supabase. Số người tham gia: ${filteredParticipants.length}`);
-
-
-        currentRoomId = roomId;
-        isHost = false;
-        isManager = true;
-        
-        setupRealtimeListener(roomId);
-
-        document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`;
-        document.getElementById('roomCodeDisplay').style.display = 'block';
-        document.getElementById('createRoomBtn').textContent = `Đã tham gia: ${currentRoomId}`;
-        document.getElementById('createRoomBtn').disabled = true;
-        document.getElementById('joinRoomBtn').style.display = 'none';
-        
-        enableButtons(); 
-        document.getElementById('bellControlSection').style.display = 'block';
-
-        closeModal('joinRoomModal');
-
-      } catch (e) {
-        console.error("Lỗi tham gia phòng:", e); // Bỏ alert
-      }
     }
+
 
     // Đã thay đổi tên hàm thành updateRoomData để rõ ràng hơn
     async function updateRoomData(data) {
@@ -810,6 +719,145 @@
         console.error("Lỗi khi cập nhật phòng:", updateError);
       }
       // Realtime listener sẽ cập nhật UI cho tất cả mọi người
+    }
+
+    async function createRoom() {
+      if (!userId) return;
+      document.getElementById('createRoomBtn').disabled = true;
+
+      const roomId = Math.floor(100000 + Math.random() * 900000).toString();
+      const initialRoomData = {
+        id: roomId,
+        bellStatus: 'locked',
+        bellSessionId: Date.now().toString(),
+        bellOpenTimestamp: null,
+        buzzes: [],
+        lockedUsers: [],
+        options: { buzzCount: 'single', buzzMode: 'single-winner' },
+        participants: [{ userId: userId, username: 'Host', isHost: true }]
+      };
+
+      try {
+        // FIX: Đảm bảo cả updated_at và participants_changed_at đều có giá trị trong INSERT
+        const { error } = await supabaseClient
+          .from('rooms')
+          .insert([{ 
+            id: roomId, 
+            room_data: initialRoomData,
+            updated_at: new Date().toISOString(), 
+            participants_changed_at: new Date().toISOString()
+          }]);
+
+        if (error) {
+          console.error("Lỗi khi tạo phòng:", error);
+          document.getElementById('createRoomBtn').disabled = false;
+          return;
+        }
+
+        currentRoomId = roomId;
+        isHost = true;
+        isManager = false;
+        managerUsername = null; // Đảm bảo ManagerUsername là null nếu là Host
+        currentRoomData = initialRoomData;
+
+        setupRealtimeListener(roomId);
+
+        document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`;
+        document.getElementById('roomCodeDisplay').style.display = 'block';
+        document.getElementById('createRoomBtn').textContent = `Mã phòng: ${currentRoomId}`;
+        document.getElementById('createRoomBtn').disabled = true;
+        document.getElementById('joinRoomBtn').style.display = 'none';
+        enableButtons();
+        updateBellUI("locked");
+        document.getElementById('bellControlSection').style.display = 'block';
+
+      } catch (e) {
+        console.error("Lỗi tạo phòng:", e);
+        document.getElementById('createRoomBtn').disabled = false;
+      }
+    }
+
+    async function confirmJoinRoom() {
+      const roomId = document.getElementById('joinRoomCodeInput').value.trim();
+      const usernameInput = document.getElementById('joinUsernameInput').value.trim();
+      if (!roomId || !usernameInput || !userId) return;
+
+      try {
+        const { data: room, error } = await supabaseClient
+          .from('rooms')
+          .select('room_data')
+          .eq('id', roomId)
+          .single();
+
+        if (error || !room) {
+          console.error("Phòng không tồn tại hoặc lỗi truy vấn:", error);
+          return;
+        }
+
+        const participants = room.room_data.participants || [];
+        const newParticipant = { userId, username: usernameInput, isManager: true, isHost: false }; 
+        const normalizedUsername = String(usernameInput).toLowerCase();
+
+        // Lọc bỏ phiên Manager/Contestant cũ nếu có cùng userId hoặc username trùng
+        const filteredParticipants = participants.filter(p => {
+          if (p.isHost) return true; 
+          if (String(p.userId) === String(userId)) return false; 
+          if (!p.isHost && !p.isManager && String(p.username).toLowerCase() === normalizedUsername) return false;
+          return true;
+        });
+
+        // Luôn thêm phiên làm việc mới
+        filteredParticipants.push(newParticipant);
+
+        // Cập nhật trực tiếp lên Supabase để kích hoạt Realtime cho tất cả các máy khác
+        // FIX: Bổ sung updated_at và participants_changed_at
+        const { error: updateError } = await supabaseClient
+            .from('rooms')
+            .update({ 
+                room_data: { 
+                    ...room.room_data, 
+                    participants: filteredParticipants, 
+                },
+                updated_at: new Date().toISOString(), 
+                participants_changed_at: new Date().toISOString()
+            })
+            .eq('id', roomId);
+
+        if (updateError) {
+           console.error("Lỗi khi cập nhật danh sách tham gia Manager:", updateError);
+           return;
+        }
+        
+        // [FIX DEBUG] Ghi log sau khi Manager gửi update lên DB
+        console.log(`Manager [${usernameInput}] đã gửi cập nhật tham gia thành công lên Supabase. Số người tham gia: ${filteredParticipants.length}`);
+
+
+        currentRoomId = roomId;
+        isHost = false;
+        isManager = true;
+        managerUsername = usernameInput; // Lưu tên Manager
+        
+        setupRealtimeListener(roomId);
+
+        document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`;
+        document.getElementById('roomCodeDisplay').style.display = 'block';
+        document.getElementById('createRoomBtn').textContent = `Đã tham gia: ${currentRoomId}`;
+        document.getElementById('createRoomBtn').disabled = true;
+        document.getElementById('joinRoomBtn').style.display = 'none';
+        
+        enableButtons(); 
+        document.getElementById('bellControlSection').style.display = 'block';
+
+        closeModal('joinRoomModal');
+        
+        // Lưu thông tin Manager vào local storage
+        localStorage.setItem('manager_roomId', currentRoomId);
+        localStorage.setItem('manager_userId', userId);
+
+
+      } catch (e) {
+        console.error("Lỗi tham gia phòng:", e);
+      }
     }
 
     async function openBell(isTimed = false) {
@@ -964,10 +1012,10 @@
         } else if (p.isManager) { 
             style += "color: #DC2626;"; 
             roleClass = "text-red-600"; 
-            roleName = "Quản lý"; // ĐÃ SỬA
+            roleName = "Quản lý"; 
         } else { 
             style += "color: #000000;";
-            roleName = "Thí sinh"; // ĐÃ SỬA
+            roleName = "Thí sinh"; 
         }
         
         return `<p class="${roleClass}" style="${style}">${p.username} (${roleName})</p>`;
@@ -1057,6 +1105,16 @@
     document.getElementById('saveLockedUsersBtn').addEventListener('click', saveLockedUsers);
     document.getElementById('resetAllLocksBtn').addEventListener('click', resetAllLocks);
     document.getElementById('saveBellOptionsBtn').addEventListener('click', saveBellOptions);
+
+    // --- BỔ SUNG: XỬ LÝ RỜI PHÒNG KHI ĐÓNG TRANG (CHO MANAGER) ---
+    window.onbeforeunload = function() {
+        if(isManager && currentRoomId) {
+            leaveRoom();
+        }
+        // Xóa thông tin manager khỏi local storage
+        localStorage.removeItem('manager_roomId');
+        localStorage.removeItem('manager_userId');
+    };
 
     enableButtons();
   </script>
