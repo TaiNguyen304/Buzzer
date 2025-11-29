@@ -511,8 +511,9 @@
   <script>
     // --- CẤU HÌNH SUPABASE (THAY THẾ BẰNG THÔNG TIN CỦA BẠN) ---
     const SUPABASE_URL = 'https://gyyjabuewruokczpqekz.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5eWphYnVld3J1b2tjenBxZWt6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzOTk5NTksImV4cCI6MjA3OTk3NTk1OX0.bCsceRhW02FySQOdk61XnMLahTWtxCZIcpvvSIUNuIU';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5eWphYnVld3J1b2tjenBxZWt6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzOTk5NTksImV4cCI6MjA3OTk3NTU5OX0.bCsceRhW02FySQOdk61XnMLahTWtxCZIcpvvSIUNuIU';
+    // ĐÃ SỬA LỖI: Đổi tên biến thành supabaseClient để tránh xung đột với đối tượng toàn cục 'supabase'
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     // -------------------------------------------------------------
 
     let userId = null;
@@ -562,9 +563,9 @@
 
     // --- REALTIME & CẬP NHẬT TRẠNG THÁI ---
     function setupRealtimeListener(roomId) {
-      if (supabaseChannel) { supabase.removeChannel(supabaseChannel); }
+      if (supabaseChannel) { supabaseClient.removeChannel(supabaseChannel); } // SỬA
 
-      supabaseChannel = supabase.channel(`room_${roomId}`)
+      supabaseChannel = supabaseClient.channel(`room_${roomId}`) // SỬA
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
           if (payload.new && payload.new.room_data) {
             handleRoomStateUpdate(payload.new.room_data);
@@ -613,7 +614,7 @@
       };
 
       try {
-        const { error } = await supabase
+        const { error } = await supabaseClient // SỬA
           .from('rooms')
           .insert([{ id: roomId, room_data: initialRoomData }]);
 
@@ -651,7 +652,7 @@
       if (!roomId || !username || !userId) return;
 
       try {
-        const { data: room, error } = await supabase
+        const { data: room, error } = await supabaseClient // SỬA
           .from('rooms')
           .select('room_data')
           .eq('id', roomId)
@@ -667,7 +668,7 @@
 
         if (!participants.some(p => p.userId === userId)) {
           participants.push(newParticipant);
-          await supabase.from('rooms').update({ room_data: { ...room.room_data, participants } }).eq('id', roomId);
+          await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants } }).eq('id', roomId); // SỬA
         }
 
         currentRoomId = roomId;
@@ -696,7 +697,7 @@
       if (!currentRoomId || (!isHost && !isManager)) return;
 
       // 1. Lấy trạng thái hiện tại
-      const { data: room, error: fetchError } = await supabase
+      const { data: room, error: fetchError } = await supabaseClient // SỬA
         .from('rooms')
         .select('room_data')
         .eq('id', currentRoomId)
@@ -739,7 +740,7 @@
       }
 
       // 3. Cập nhật lên Supabase
-      const { error: updateError } = await supabase
+      const { error: updateError } = await supabaseClient // SỬA
         .from('rooms')
         .update({ room_data: updatedData })
         .eq('id', currentRoomId);
