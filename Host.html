@@ -633,14 +633,14 @@
       };
 
       try {
-        // FIX: THÊM updated_at VÀ participants_changed_at vào INSERT để khắc phục lỗi 400 nếu cột là NOT NULL
+        // FIX: Đảm bảo cả updated_at và participants_changed_at đều có giá trị trong INSERT
         const { error } = await supabaseClient
           .from('rooms')
           .insert([{ 
             id: roomId, 
             room_data: initialRoomData,
             updated_at: new Date().toISOString(), 
-            participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
+            participants_changed_at: new Date().toISOString()
           }]);
 
         if (error) {
@@ -713,7 +713,7 @@
                     participants: filteredParticipants, 
                 },
                 updated_at: new Date().toISOString(), 
-                participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
+                participants_changed_at: new Date().toISOString()
             })
             .eq('id', roomId);
 
@@ -804,7 +804,7 @@
         .update({ 
             room_data: updatedData,
             updated_at: new Date().toISOString(), 
-            participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
+            participants_changed_at: new Date().toISOString()
         })
         .eq('id', currentRoomId);
 
@@ -953,14 +953,29 @@
         if (scoreA !== scoreB) { return scoreA - scoreB; }
         return (a.username || '').localeCompare(b.username || '');
       });
+
+      // Bắt đầu sửa đổi ở đây:
       document.getElementById('participantsList').innerHTML = sortedParticipants.map(p => {
         let style = "font-weight: bold; font-size: 1.125rem; padding: 0.5rem;";
         let roleClass = "";
-        if (p.isHost) { style += "color: #2563EB;"; roleClass = "text-blue-600"; }
-        else if (p.isManager) { style += "color: #DC2626;"; roleClass = "text-red-600"; }
-        else { style += "color: #000000;"; }
-        return `<p class="${roleClass}" style="${style}">${p.username} (${p.isHost ? 'Host' : p.isManager ? 'Manager' : 'Contestant'})</p>`;
+        let roleName = ""; // Biến mới để lưu tên vai trò đã dịch
+
+        if (p.isHost) { 
+            style += "color: #2563EB;"; 
+            roleClass = "text-blue-600"; 
+            roleName = "Host";
+        } else if (p.isManager) { 
+            style += "color: #DC2626;"; 
+            roleClass = "text-red-600"; 
+            roleName = "Quản lý"; // Đã sửa từ Manager -> Quản lý
+        } else { 
+            style += "color: #000000;";
+            roleName = "Thí sinh"; // Đã sửa từ Contestant -> Thí sinh
+        }
+        
+        return `<p class="${roleClass}" style="${style}">${p.username} (${roleName})</p>`;
       }).join('');
+      // Kết thúc sửa đổi
     }
 
     function renderLockUsersList() {
