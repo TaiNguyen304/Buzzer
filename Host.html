@@ -985,7 +985,7 @@
     function renderParticipantsList() {
       const participants = Array.isArray(currentParticipants) ? currentParticipants : [];
       if (participants.length === 0) {
-        document.getElementById('participantsList').innerHTML = "<p>Chưa có ai tham gia.</p>";
+        document.getElementById('participantsList').innerHTML = "<strong>Chưa có ai tham gia.</strong>";
         return;
       }
       const sortedParticipants = [...participants].sort((a, b) => {
