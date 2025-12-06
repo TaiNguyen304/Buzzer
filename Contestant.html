@@ -266,8 +266,6 @@
         <div id="buzzerSection" style="display: none;">
             <h2>Phòng <span id="roomCodeDisplay"></span></h2>
             <h3>Chào, <span id="usernameDisplay"></span></h3>
-            <p style="text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 1rem;">(Có thể nhấn phím
-                <strong>Ctrl</strong> để bấm chuông)</p>
             <div class="buzzer-controls">
                 <button id="buzzerBtn" disabled>Đang kết nối...</button>
                 <div id="buzzerStatus" class="status-waiting">Vui lòng chờ Host...</div>
@@ -402,7 +400,7 @@
         function setBuzzerState(state, message) {
             buzzerBtn.disabled = true; buzzerBtn.className = ""; buzzerStatus.className = "";
             if (state === 'active') {
-                buzzerBtn.disabled = false; buzzerBtn.textContent = "Bấm chuông! (hoặc Ctrl)"; buzzerBtn.classList.add('active');
+                buzzerBtn.disabled = false; buzzerBtn.textContent = "Bấm chuông"; buzzerBtn.classList.add('active');
                 buzzerStatus.textContent = "Sẵn sàng bấm!"; buzzerStatus.classList.add('status-active');
             } else if (state === 'buzzed') {
                 buzzerBtn.textContent = "Đã bấm"; buzzerBtn.classList.add('buzzed');
