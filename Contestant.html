@@ -221,7 +221,7 @@
             font-weight: bold;
         }
         
-        /* CSS MỚI CHO NÚT RỜI PHÒNG */
+        /* CSS CHO NÚT RỜI PHÒNG */
         #leaveRoomBtn {
             margin-top: 2rem; 
             padding: 0.75rem 1rem;
@@ -239,8 +239,8 @@
 
         #leaveRoomBtn:hover {
             background-color: orange;
-            color: #FFFFFF; /* Màu chữ trắng khi hover */
-            font-weight: bold; /* Chữ đậm khi hover */
+            color: #FFFFFF;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -270,6 +270,7 @@
         <div id="buzzerSection" style="display: none;">
             <h2>Phòng <span id="roomCodeDisplay"></span></h2>
             <h3>Chào, <span id="usernameDisplay"></span></h3>
+            <p style="text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 1rem;">(Có thể nhấn phím <strong>Ctrl</strong> để bấm chuông)</p>
 
             <div class="buzzer-controls">
                 <button id="buzzerBtn" disabled>Đang kết nối...</button>
@@ -277,12 +278,12 @@
             </div>
             
             <button id="leaveRoomBtn">Rời phòng</button>
-            </div>
+        </div>
 
     </div>
 
     <script>
-        // --- CẤU HÌNH SUPABASE (THAY THẾ BẰNG THÔNG TIN CỦA BẠN) ---
+        // --- CẤU HÌNH SUPABASE ---
         const SUPABASE_URL = 'https://gyyjabuewruokczpqekz.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_K7-yvCKpi5qiV_N0WC3rMg_eG8MEHSV';
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -295,6 +296,9 @@
         let myBuzzTime = null;
         let previousBuzzCount = 0;
         let supabaseChannel = null;
+        
+        // --- BIẾN MỚI ĐỂ TÍNH THỜI GIAN LOCAL ---
+        let localBellStartTime = null; 
 
         const loginSection = document.getElementById('loginSection');
         const buzzerSection = document.getElementById('buzzerSection');
@@ -303,7 +307,6 @@
         const errorMessage = document.getElementById('errorMessage');
         const buzzSound = document.getElementById('buzzSound');
 
-        // Hàm phát nhạc
         function playBuzzerSound() {
             if (buzzSound) {
                 buzzSound.currentTime = 0;
@@ -311,10 +314,10 @@
             }
         }
 
-        // Khởi tạo trạng thái ban đầu
+        // Khởi tạo
         document.getElementById('joinRoomBtn').textContent = 'Xác nhận';
         document.getElementById('joinRoomBtn').disabled = false;
-        userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Tạo ID ngẫu nhiên cho phiên làm việc này
+        userId = `user-${Math.random().toString(36).substring(2, 9)}`;
 
         function setErrorMessage(message) {
             errorMessage.textContent = message;
@@ -332,7 +335,6 @@
             document.getElementById('joinRoomBtn').disabled = true;
 
             try {
-                // 1. Lấy trạng thái phòng hiện tại
                 let { data: room, error } = await supabaseClient
                     .from('rooms')
                     .select('room_data')
@@ -346,35 +348,17 @@
 
                 currentRoomData = room.room_data;
                 let participants = currentRoomData.participants || [];
-
-                // 2. Chuẩn bị thông tin người tham gia mới (userId luôn mới)
                 const newParticipant = { userId, username: inputUsername, isHost: false, isManager: false };
-                
                 const normalizedUsername = String(inputUsername).toLowerCase();
-                let participantFound = false;
-
-                // Lọc bỏ tất cả các phiên làm việc cũ của thí sinh này (dựa trên username)
+                
                 participants = participants.filter(p => {
-                    // GIỮ LẠI Host và Manager
-                    if (p.isHost || p.isManager) {
-                        return true;
-                    }
-                    // Nếu là thí sinh và username trùng khớp, KHÔNG GIỮ LẠI (để loại bỏ phiên cũ)
-                    if (String(p.username).toLowerCase() === normalizedUsername) {
-                        participantFound = true; // Đánh dấu đã tìm thấy
-                        return false; // Loại bỏ entry cũ
-                    }
-                    // Giữ lại các thí sinh khác
+                    if (p.isHost || p.isManager) return true;
+                    if (String(p.username).toLowerCase() === normalizedUsername) return false;
                     return true;
                 });
 
-                // Luôn thêm phiên làm việc mới (userId mới) vào danh sách
                 participants.push(newParticipant);
-                console.log(`Participant ${inputUsername} joined/rejoined. Old session(s) removed: ${participantFound}. New session added.`);
 
-
-                // Luôn gửi cập nhật lên Supabase để kích hoạt Realtime cho Host/Manager
-                // FIX: Bổ sung updated_at và participants_changed_at
                 const { error: updateError } = await supabaseClient
                     .from('rooms')
                     .update({ 
@@ -383,21 +367,18 @@
                             participants: participants,
                         },
                         updated_at: new Date().toISOString(),
-                        participants_changed_at: new Date().toISOString() // <<<< THÊM >>>>
+                        participants_changed_at: new Date().toISOString()
                     })
                     .eq('id', roomId);
 
                 if (updateError) {
-                    console.error("Lỗi khi cập nhật người tham gia:", updateError);
-                    setErrorMessage("Lỗi khi cập nhật danh sách người tham gia.");
+                    console.error("Lỗi cập nhật tham gia:", updateError);
+                    setErrorMessage("Lỗi khi cập nhật danh sách.");
                     return;
                 }
-                // =====================================================================
 
-                // 3. Thiết lập Realtime Subscription
                 setupRealtimeListener(roomId);
 
-                // 4. Cập nhật UI
                 currentRoomId = roomId;
                 username = inputUsername;
                 loginSection.style.display = 'none';
@@ -407,11 +388,15 @@
                 errorMessage.textContent = "";
                 iHaveBuzzed = false;
                 myBuzzTime = null;
+                
+                // Reset local timer khi mới vào
+                localBellStartTime = null;
+                
                 updateBuzzerUI();
 
             } catch (e) {
                 console.error("Lỗi JoinRoom:", e);
-                setErrorMessage("Lỗi không xác định khi tham gia phòng.");
+                setErrorMessage("Lỗi không xác định.");
             }
         }
 
@@ -431,13 +416,28 @@
             const oldBellSessionId = currentRoomData ? currentRoomData.bellSessionId : null;
             currentRoomData = data;
 
+            // --- LOGIC TÍNH GIỜ MỚI ---
+            // Kiểm tra xem chuông có đang mở không
+            if (currentRoomData.bellStatus.startsWith('open')) {
+                // Nếu đây là lần đầu tiên chúng ta thấy trạng thái 'open' trong phiên này (localBellStartTime chưa được set),
+                // thì set mốc thời gian NGAY BÂY GIỜ.
+                // Đây là thời điểm máy Contestant *nhận được* tín hiệu mở.
+                if (localBellStartTime === null) {
+                    localBellStartTime = Date.now();
+                    console.log("Chuông mở! Bắt đầu tính giờ local tại:", localBellStartTime);
+                }
+            } else {
+                // Nếu chuông bị khóa, reset mốc thời gian
+                localBellStartTime = null;
+            }
+            // ---------------------------
+
             if (oldBellSessionId && oldBellSessionId !== currentRoomData.bellSessionId) {
                 iHaveBuzzed = false;
                 myBuzzTime = null;
                 previousBuzzCount = 0;
             }
 
-            // Phát nhạc khi có người bấm
             const currentBuzzes = data.buzzes || [];
             if (currentBuzzes.length > previousBuzzCount) {
                 playBuzzerSound();
@@ -462,7 +462,7 @@
             buzzerStatus.className = "";
             if (state === 'active') {
                 buzzerBtn.disabled = false;
-                buzzerBtn.textContent = "Bấm chuông!";
+                buzzerBtn.textContent = "Bấm chuông! (hoặc Ctrl)";
                 buzzerBtn.classList.add('active');
                 buzzerStatus.textContent = "Sẵn sàng bấm!";
                 buzzerStatus.classList.add('status-active');
@@ -502,29 +502,40 @@
         }
 
         async function handleBuzzerClick() {
+            // Kiểm tra các điều kiện chặn bấm
             if (!currentRoomData || !userId || buzzerBtn.disabled || !currentRoomData.bellSessionId) return;
+            if (buzzerBtn.classList.contains('buzzed') || buzzerBtn.classList.contains('locked')) return;
 
             playBuzzerSound();
-            setBuzzerState("buzzed", "Đã bấm!");
+            setBuzzerState("buzzed", "Đang gửi...");
 
-            const bellOpenTimestamp = currentRoomData.bellOpenTimestamp;
-            const buzzTime = bellOpenTimestamp ? ((Date.now() - new Date(bellOpenTimestamp).getTime()) / 1000) : 0;
+            // --- TÍNH TOÁN THỜI GIAN THEO LOGIC MỚI ---
+            // Thời gian = Thời điểm bấm (Date.now()) - Thời điểm nhận được tín hiệu mở (localBellStartTime)
+            // Nếu vì lý do gì đó localBellStartTime bị null (ví dụ: mạng lag nhận open trễ), ta dùng 0 làm fallback.
+            let buzzTime = 0;
+            if (localBellStartTime) {
+                buzzTime = (Date.now() - localBellStartTime) / 1000;
+            }
+            
+            // Đảm bảo không âm (trường hợp hiếm gặp sai lệch đồng hồ hệ thống cực nhỏ)
+            if (buzzTime < 0) buzzTime = 0;
+            
+            console.log(`Bấm chuông! React time: ${buzzTime.toFixed(3)}s`);
+            // -------------------------------------------
 
             const newBuzz = {
                 roomId: currentRoomId,
                 username: username,
                 userId: userId,
                 bellSessionId: currentRoomData.bellSessionId,
-                time: buzzTime
+                time: buzzTime // Gửi thời gian đã tính local lên server
             };
             
-            // Cập nhật trạng thái phòng trên Supabase
             const currentBuzzes = currentRoomData.buzzes || [];
             currentBuzzes.push(newBuzz);
             
             let updatedData = { ...currentRoomData, buzzes: currentBuzzes };
 
-            // Logic khóa chuông ngay lập tức cho chế độ 'single-winner'
             if (currentRoomData.options.buzzMode === 'single-winner') {
                 updatedData.bellStatus = 'locked_winner';
             }
@@ -533,112 +544,85 @@
                 .from('rooms')
                 .update({ 
                     room_data: updatedData,
-                    updated_at: new Date().toISOString(), // Đảm bảo cột hệ thống được cập nhật
-                    participants_changed_at: new Date().toISOString() // Đảm bảo Realtime kích hoạt (nếu bạn đã thêm cột này)
+                    updated_at: new Date().toISOString(),
+                    participants_changed_at: new Date().toISOString()
                 })
                 .eq('id', currentRoomId);
 
 
             if (error) {
                 console.error("Lỗi khi bấm chuông:", error);
-                setBuzzerState("active", "Lỗi, thử lại!"); // Khôi phục trạng thái để thử lại
+                setBuzzerState("active", "Lỗi, thử lại!");
             }
-            // Realtime listener sẽ cập nhật UI sau khi DB được cập nhật
         }
 
-        // HÀM MỚI ĐƯỢC THÊM: leaveRoom()
         async function leaveRoom() {
             if (!currentRoomId || !userId) {
-                console.warn("Không thể rời phòng: Thiếu Room ID hoặc User ID.");
-                // Dù sao cũng reset UI
                 loginSection.style.display = 'block';
                 buzzerSection.style.display = 'none';
-                userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Tạo ID mới
+                userId = `user-${Math.random().toString(36).substring(2, 9)}`;
                 return;
             }
             
-            console.log(`Đang rời phòng ${currentRoomId} với userId ${userId}...`);
-
-            // 1. Lấy dữ liệu phòng hiện tại để đảm bảo danh sách participants mới nhất
             let { data: room, error: fetchError } = await supabaseClient
                 .from('rooms')
                 .select('room_data')
                 .eq('id', currentRoomId)
                 .single();
             
-            if (fetchError || !room) {
-                console.error("Lỗi khi fetch dữ liệu phòng để rời:", fetchError);
-                // Dù có lỗi DB, vẫn cố gắng reset local state
-            } else {
+            if (!fetchError && room) {
                 let currentParticipants = room.room_data.participants || [];
-                
-                // Lọc bỏ phiên làm việc hiện tại (dựa trên userId)
                 const newParticipants = currentParticipants.filter(p => String(p.userId) !== String(userId));
 
-                // 2. Cập nhật lại danh sách người tham gia trên Supabase
-                // Chỉ cập nhật nếu danh sách thực sự thay đổi (đã tìm thấy và xóa)
                 if (newParticipants.length < currentParticipants.length) {
-                    try {
-                        const { error: updateError } = await supabaseClient
-                            .from('rooms')
-                            .update({
-                                room_data: {
-                                    ...room.room_data,
-                                    participants: newParticipants,
-                                },
-                                updated_at: new Date().toISOString(),
-                                participants_changed_at: new Date().toISOString()
-                            })
-                            .eq('id', currentRoomId);
-
-                        if (updateError) {
-                            console.error("Lỗi khi cập nhật danh sách người tham gia sau khi rời phòng:", updateError);
-                        }
-                    } catch (e) {
-                        console.error("Lỗi cập nhật Supabase khi rời phòng:", e);
-                    }
-                } else {
-                    console.log("Phiên làm việc không có trong DB, chỉ reset local state.");
+                    await supabaseClient.from('rooms').update({
+                        room_data: { ...room.room_data, participants: newParticipants },
+                        updated_at: new Date().toISOString(),
+                        participants_changed_at: new Date().toISOString()
+                    }).eq('id', currentRoomId);
                 }
             }
             
-            // 3. Xóa kênh Realtime
             if (supabaseChannel) {
                 supabaseClient.removeChannel(supabaseChannel);
                 supabaseChannel = null;
             }
 
-            // 4. Reset trạng thái cục bộ
             currentRoomId = null;
             username = null;
             currentRoomData = null;
             iHaveBuzzed = false;
             myBuzzTime = null;
             previousBuzzCount = 0;
+            localBellStartTime = null; // Reset
             
-            // 5. Cập nhật UI và tạo userId mới
             loginSection.style.display = 'block';
             buzzerSection.style.display = 'none';
-            document.getElementById('roomCodeInput').value = ""; // Xóa mã phòng
-            document.getElementById('usernameInput').value = ""; // Xóa username
-            setErrorMessage(""); // Xóa thông báo lỗi cũ
-            userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Tạo ID mới cho lần đăng nhập sau
+            document.getElementById('roomCodeInput').value = "";
+            document.getElementById('usernameInput').value = "";
+            setErrorMessage("");
+            userId = `user-${Math.random().toString(36).substring(2, 9)}`;
             document.getElementById('joinRoomBtn').textContent = 'Xác nhận';
             document.getElementById('joinRoomBtn').disabled = false;
-            setBuzzerState("locked", "Vui lòng nhập thông tin."); // Đặt lại trạng thái buzzer
-            
-            console.log("Đã rời phòng thành công và reset local state.");
+            setBuzzerState("locked", "Vui lòng nhập thông tin.");
         }
-        // END HÀM MỚI
 
         document.getElementById('joinRoomBtn').addEventListener('click', joinRoom);
         buzzerBtn.addEventListener('click', handleBuzzerClick);
-        
-        // THÊM LISTENER CHO NÚT RỜI PHÒNG
-        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
-        if (leaveRoomBtn) {
-             leaveRoomBtn.addEventListener('click', leaveRoom);
-        }
+        document.getElementById('leaveRoomBtn').addEventListener('click', leaveRoom);
+
+        // --- SỰ KIỆN PHÍM TẮT CTRL ---
+        document.addEventListener('keydown', (event) => {
+            // Kiểm tra phím Ctrl (trái hoặc phải)
+            if (event.key === 'Control' || event.ctrlKey) {
+                // Kiểm tra xem người dùng đã vào phòng chưa (buzzerSection đang hiện)
+                if (buzzerSection.style.display !== 'none') {
+                    // Gọi hàm bấm chuông. Hàm handleBuzzerClick đã có sẵn logic kiểm tra 
+                    // xem nút có đang active hay disabled/buzzed rồi, nên gọi trực tiếp là an toàn.
+                    handleBuzzerClick();
+                }
+            }
+        });
         
         setBuzzerState("locked", "Vui lòng nhập thông tin.");
     </script>
