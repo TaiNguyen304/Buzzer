@@ -7,7 +7,7 @@
     <title>Thí sinh - Bấm chuông</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ... (GIỮ NGUYÊN CSS) ... */
+        /* GIỮ NGUYÊN CSS CŨ */
         body {
             background-color: #F3F4F6;
             color: #111827;
@@ -289,7 +289,7 @@
         let previousBuzzCount = 0;
         let supabaseChannel = null;
 
-        // BIẾN QUAN TRỌNG: Lưu thời điểm MÁY CONTESTANT nhận được tín hiệu mở
+        // BIẾN QUAN TRỌNG: Lưu thời điểm MÁY CONTESTANT nhận được tín hiệu mở/reset
         let localBellStartTime = null;
 
         const loginSection = document.getElementById('loginSection');
@@ -329,6 +329,7 @@
                 currentRoomData = room.room_data;
                 let participants = currentRoomData.participants || [];
                 const newParticipant = { userId, username: inputUsername, isHost: false, isManager: false };
+                // Lọc bỏ user cũ cùng tên nếu có (tránh trùng lặp)
                 participants = participants.filter(p => !(!p.isHost && !p.isManager && String(p.username).toLowerCase() === String(inputUsername).toLowerCase()));
                 participants.push(newParticipant);
 
@@ -368,10 +369,14 @@
             const oldBellSessionId = currentRoomData ? currentRoomData.bellSessionId : null;
             currentRoomData = data;
 
-            // --- LOGIC TÍNH GIỜ LOCAL (QUAN TRỌNG) ---
-            if (currentRoomData.bellStatus.startsWith('open')) {
-                // Nếu chuông mở mà chưa có mốc thời gian local -> Đặt mốc ngay bây giờ
-                if (localBellStartTime === null) {
+            const isBellOpen = currentRoomData.bellStatus.startsWith('open');
+            const isNewSession = oldBellSessionId !== currentRoomData.bellSessionId;
+
+            // --- LOGIC TÍNH GIỜ LOCAL (ĐÃ CHỈNH SỬA) ---
+            if (isBellOpen) {
+                // Nếu chuông mở VÀ (chưa có mốc giờ HOẶC là phiên mới do Host reset)
+                // Thì đặt lại mốc thời gian ngay lập tức.
+                if (localBellStartTime === null || isNewSession) {
                     localBellStartTime = Date.now();
                 }
             } else {
@@ -380,7 +385,8 @@
             }
             // -----------------------------------------
 
-            if (oldBellSessionId && oldBellSessionId !== currentRoomData.bellSessionId) {
+            // Nếu ID phiên thay đổi (Host reset), reset trạng thái của mình
+            if (isNewSession) {
                 iHaveBuzzed = false;
                 myBuzzTime = null;
                 previousBuzzCount = 0;
@@ -436,10 +442,10 @@
             playBuzzerSound();
             setBuzzerState("buzzed", "Đang gửi...");
 
-            // --- TÍNH TOÁN THỜI GIAN LOCAL ---
-            // Thời gian = Thời điểm bấm - Thời điểm NHẬN ĐƯỢC tín hiệu mở
+            // --- TÍNH TOÁN THỜI GIAN LOCAL (CHÍNH XÁC, KHÔNG TÍNH ĐỘ TRỄ MẠNG) ---
             let buzzTime = 0;
             if (localBellStartTime) {
+                // Thời gian = Lúc bấm - Lúc nhận được hiệu lệnh mở/reset
                 buzzTime = (Date.now() - localBellStartTime) / 1000;
             }
             if (buzzTime < 0) buzzTime = 0;
@@ -448,7 +454,7 @@
             const newBuzz = {
                 roomId: currentRoomId, username: username, userId: userId,
                 bellSessionId: currentRoomData.bellSessionId,
-                time: buzzTime // Gửi thời gian đã loại bỏ độ trễ
+                time: buzzTime // Gửi thời gian đã tính toán tại local đi
             };
 
             let updatedData = { ...currentRoomData, buzzes: [...(currentRoomData.buzzes || []), newBuzz] };
@@ -461,9 +467,8 @@
             if (error) { console.error("Lỗi khi bấm chuông:", error); setBuzzerState("active", "Lỗi, thử lại!"); }
         }
 
-        async function leaveRoom() { /* (Giữ nguyên logic rời phòng như cũ) */
+        async function leaveRoom() {
             if (!currentRoomId || !userId) { location.reload(); return; }
-            // Logic rút gọn cho clean code
             let { data: room } = await supabaseClient.from('rooms').select('room_data').eq('id', currentRoomId).single();
             if (room) {
                 const newParticipants = (room.room_data.participants || []).filter(p => String(p.userId) !== String(userId));

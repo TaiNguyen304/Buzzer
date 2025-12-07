@@ -7,7 +7,7 @@
   <title>Host - Bảng điều khiển</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    /* ... (GIỮ NGUYÊN CSS) ... */
+    /* GIỮ NGUYÊN CSS CŨ */
     .modal-body::-webkit-scrollbar {
       width: 8px;
     }
@@ -362,6 +362,7 @@
     .latest-buzz {
       background-color: blue !important;
       color: white !important;
+      font-weight: bold;
     }
 
     .latest-buzz td {
@@ -537,7 +538,7 @@
       const currentBuzzes = data.buzzes || [];
       if (currentBuzzes.length > previousBuzzCount) { playBuzzerSound(); }
       previousBuzzCount = currentBuzzes.length;
-      renderBuzzTable(currentBuzzes, data.bellOpenTimestamp);
+      renderBuzzTable(currentBuzzes);
       updateLockedUsersUI(Array.isArray(data.lockedUsers) ? data.lockedUsers : null);
       enableButtons();
     }
@@ -547,7 +548,13 @@
       let { data: room } = await supabaseClient.from('rooms').select('room_data').eq('id', currentRoomId).single();
       if (!room) return;
       let updatedData = { ...room.room_data };
-      if (data.reset) { updatedData.buzzes = []; updatedData.bellSessionId = Date.now().toString(); updatedData.bellOpenTimestamp = null; updatedData.bellStatus = 'locked'; previousBuzzCount = 0; }
+      if (data.reset) { 
+          updatedData.buzzes = []; 
+          updatedData.bellSessionId = Date.now().toString(); // Tạo ID phiên mới để reset giờ Contestant
+          updatedData.bellOpenTimestamp = null; 
+          updatedData.bellStatus = 'locked'; 
+          previousBuzzCount = 0; 
+      }
       if (data.bellStatus) {
         updatedData.bellStatus = data.bellStatus;
         if (data.bellStatus.startsWith('open')) { updatedData.bellOpenTimestamp = new Date().toISOString(); }
@@ -555,7 +562,10 @@
       }
       if (data.lockedUsers) updatedData.lockedUsers = data.lockedUsers;
       if (data.options) updatedData.options = { ...updatedData.options, ...data.options };
-      if (data.reset && data.bellStatus === 'open_infinite') { updatedData.bellStatus = 'open_infinite'; updatedData.bellOpenTimestamp = new Date().toISOString(); }
+      if (data.reset && data.bellStatus === 'open_infinite') { 
+          updatedData.bellStatus = 'open_infinite'; 
+          updatedData.bellOpenTimestamp = new Date().toISOString(); 
+      }
 
       await supabaseClient.from('rooms').update({ room_data: updatedData, updated_at: new Date().toISOString(), participants_changed_at: new Date().toISOString() }).eq('id', currentRoomId);
     }
@@ -602,7 +612,6 @@
         status = "open_timed";
         const duration = parseInt(document.getElementById('bellTimeInput').value) || 10;
         if (bellTimer) clearTimeout(bellTimer);
-        // Thêm 500ms vào timer của Host để bù độ trễ mạng, đảm bảo thí sinh có đủ thời gian
         bellTimer = setTimeout(() => { lockBell(); }, (duration * 1000) + 500);
       }
       await updateRoomData({ bellStatus: status, reset: false });
@@ -612,8 +621,10 @@
 
     async function resetBell() {
       document.getElementById('buzzTableBody').innerHTML = `<tr><td colspan="2">Đang reset chuông...</td></tr>`;
-      let nextStatus = null; if (currentRoomData && currentRoomData.bellStatus === 'open_infinite') { nextStatus = 'open_infinite'; }
-      const payload = { reset: true }; if (nextStatus === 'open_infinite') { payload.bellStatus = 'open_infinite'; }
+      let nextStatus = null; 
+      if (currentRoomData && currentRoomData.bellStatus === 'open_infinite') { nextStatus = 'open_infinite'; }
+      const payload = { reset: true }; 
+      if (nextStatus === 'open_infinite') { payload.bellStatus = 'open_infinite'; }
       await updateRoomData(payload); if (bellTimer) clearTimeout(bellTimer);
     }
 
@@ -631,7 +642,7 @@
       document.getElementById('opt-single-winner').checked = options.buzzMode === 'single-winner'; document.getElementById('opt-all-buzz').checked = options.buzzMode === 'all-buzz';
     }
 
-    function renderBuzzTable(buzzes, bellOpenTimestamp) {
+    function renderBuzzTable(buzzes) {
       const tableBody = document.getElementById('buzzTableBody');
       if (buzzes.length === 0) { tableBody.innerHTML = `<tr><td colspan="2">Chưa có ai bấm chuông</td></tr>`; return; }
 
@@ -652,7 +663,7 @@
       }).join('');
     }
 
-    // --- (Các hàm render danh sách và xử lý khóa user giữ nguyên - đã lược bớt cho ngắn gọn) ---
+    // --- (Các hàm render và xử lý khác giữ nguyên) ---
     function renderParticipantsList() {
       const participants = Array.isArray(currentParticipants) ? currentParticipants : [];
       if (participants.length === 0) { document.getElementById('participantsList').innerHTML = "<strong>Chưa có ai tham gia.</strong>"; return; }
@@ -664,7 +675,7 @@
       document.getElementById('lockUsersList').innerHTML = contestants.length ? contestants.map(p => {
         const val = String(p.userId || p.username); const checked = (currentRoomData.lockedUsers || []).some(u => String(u) === val);
         return `<div style="display: flex; align-items: center;"><input type="checkbox" value="${val}" ${checked ? 'checked' : ''} style="height: 1.25rem; width: 1.25rem; margin-right: 0.75rem;"><label>${p.username}</label></div>`;
-      }).join('') : "<p>Chưa có người tham gia.</p>";
+      }).join('') : "<strong>Chưa có người tham gia.</strong>";
     }
     function updateLockedUsersUI(locked) { if (!locked) return; document.querySelectorAll('#lockUsersList input').forEach(cb => cb.checked = locked.includes(cb.value)); }
     async function saveLockedUsers() { if (!currentRoomId) return; const locked = Array.from(document.querySelectorAll('#lockUsersList input:checked')).map(cb => cb.value); await updateRoomData({ lockedUsers: locked }); closeModal('lockUsersModal'); }
