@@ -699,6 +699,10 @@
     document.getElementById('saveBellOptionsBtn').addEventListener('click', saveBellOptions);
     window.onbeforeunload = function () { leaveRoomManager(); localStorage.removeItem('manager_roomId'); localStorage.removeItem('manager_userId'); };
     enableButtons();
+
+    document.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+    });
   </script>
 </body>
 
