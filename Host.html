@@ -417,7 +417,7 @@
 
   <div id="participantsModal" class="modal-overlay" style="display: none;">
     <div class="modal-content">
-      <h2>Danh sách người tham gia</h2>
+      <h2 style="color: green;">Danh sách người tham gia</h2>
       <div id="participantsList" class="modal-body"></div>
       <div class="modal-actions-center"><button onclick="closeModal('participantsModal')"
           class="modal-close-btn text-white">Đóng</button></div>
@@ -631,7 +631,7 @@
     function updateBellUI(status) {
       const display = document.getElementById('bellStatusDisplay');
       display.style.backgroundColor = 'red'; display.textContent = 'CHUÔNG ĐANG KHÓA';
-      if (status === 'open_infinite') { display.style.backgroundColor = 'blue'; display.textContent = 'CHUÔNG ĐANG MỞ (VÔ HẠN)'; }
+      if (status === 'open_infinite') { display.style.backgroundColor = 'blue'; display.textContent = 'CHUÔNG ĐANG MỞ (VÔ HẠY)'; }
       else if (status === 'open_timed') { display.style.backgroundColor = 'green'; display.textContent = 'CHUÔNG ĐANG MỞ (CÓ TÍNH GIỜ)'; }
       else if (status === 'locked_winner') { display.style.backgroundColor = '#ff00cc'; display.textContent = 'ĐÃ CÓ NGƯỜI BẤM!'; }
     }
@@ -663,13 +663,17 @@
       }).join('');
     }
 
-    // --- (Các hàm render và xử lý khác giữ nguyên) ---
     function renderParticipantsList() {
       const participants = Array.isArray(currentParticipants) ? currentParticipants : [];
       if (participants.length === 0) { document.getElementById('participantsList').innerHTML = "<strong>Chưa có ai tham gia.</strong>"; return; }
       const sorted = [...participants].sort((a, b) => { const roleScore = p => p.isHost ? 1 : p.isManager ? 2 : 3; return roleScore(a) - roleScore(b) || (a.username || '').localeCompare(b.username || ''); });
-      document.getElementById('participantsList').innerHTML = sorted.map(p => { let color = p.isHost ? 'blue' : p.isManager ? 'red' : 'black'; return `<p style="font-weight: bold; font-size: 1.125rem; padding: 0.5rem; color: ${color};">${p.username}</p>`; }).join('');
+      document.getElementById('participantsList').innerHTML = sorted.map(p => { 
+        // Đổi màu: Host = blue, Manager = red, Contestant = purple
+        let color = p.isHost ? 'blue' : p.isManager ? 'red' : 'purple'; 
+        return `<p style="font-weight: bold; font-size: 1.125rem; padding: 0.5rem; color: ${color};">${p.username}</p>`; 
+      }).join('');
     }
+    
     function renderLockUsersList() {
       const contestants = currentParticipants.filter(p => !p.isHost && !p.isManager);
       document.getElementById('lockUsersList').innerHTML = contestants.length ? contestants.map(p => {
