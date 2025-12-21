@@ -631,7 +631,7 @@
     function updateBellUI(status) {
       const display = document.getElementById('bellStatusDisplay');
       display.style.backgroundColor = 'red'; display.textContent = 'CHUÔNG ĐANG KHÓA';
-      if (status === 'open_infinite') { display.style.backgroundColor = 'blue'; display.textContent = 'CHUÔNG ĐANG MỞ (VÔ HẠY)'; }
+      if (status === 'open_infinite') { display.style.backgroundColor = 'blue'; display.textContent = 'CHUÔNG ĐANG MỞ (VÔ HẠN)'; }
       else if (status === 'open_timed') { display.style.backgroundColor = 'green'; display.textContent = 'CHUÔNG ĐANG MỞ (CÓ TÍNH GIỜ)'; }
       else if (status === 'locked_winner') { display.style.backgroundColor = '#ff00cc'; display.textContent = 'ĐÃ CÓ NGƯỜI BẤM!'; }
     }
