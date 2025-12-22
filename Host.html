@@ -583,7 +583,7 @@
           event: 'UPDATE',
           schema: 'public',
           table: 'rooms',
-          filter: `id=eq.${id}` // Sử dụng biến id theo đúng database của bạn
+          filter: `id=eq.${roomId}` // Sử dụng biến id theo đúng database của bạn
         }, payload => {
           const newRoomData = payload.new.room_data;
 
