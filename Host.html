@@ -583,28 +583,26 @@
           event: 'UPDATE',
           schema: 'public',
           table: 'rooms',
-          filter: `id=eq.${roomId}` // Sử dụng biến id theo đúng database của bạn
+          filter: `id=eq.${roomId}` // id lấy từ database của bạn
         }, payload => {
           const newRoomData = payload.new.room_data;
 
-          // 1. DỪNG TIMER: Nếu trạng thái không còn là 'open', hủy bộ đếm ngay lập tức
+          // Dừng Timer nếu trạng thái không còn là 'open'
           if (newRoomData.bellStatus !== 'open_timed' && newRoomData.bellStatus !== 'open_infinite') {
             if (bellTimer) {
-              console.log("Timer đã dừng vì có người bấm hoặc Host khóa.");
               clearTimeout(bellTimer);
               bellTimer = null;
             }
           }
 
-          // 2. CẬP NHẬT DỮ LIỆU TOÀN CỤC
+          // Cập nhật dữ liệu vào biến toàn cục
           currentRoomData = newRoomData;
 
-          // 3. VẼ LẠI BẢNG: Gọi hàm renderBuzzTable gốc của bạn
+          // CẬP NHẬT GIAO DIỆN NGAY LẬP TỨC
           renderBuzzTable(currentRoomData.buzzes || []);
-
-          // 4. CẬP NHẬT TRẠNG THÁI GIAO DIỆN (Màu sắc nút, text thông báo)
-          updateBellUI();
+          updateBellUI(); // Gọi hàm này ở đây để UI thay đổi màu sắc
         })
+
         .subscribe();
     }
 
@@ -775,12 +773,38 @@
       await updateRoomData(payload);
     }
 
-    function updateBellUI(status) {
+    function updateBellUI() {
+      // Nếu chưa có dữ liệu phòng, mặc định hiện khóa
+      if (!currentRoomData || !currentRoomData.bellStatus) {
+        const display = document.getElementById('bellStatusDisplay');
+        display.style.backgroundColor = 'red';
+        display.textContent = 'CHUÔNG ĐANG KHÓA';
+        return;
+      }
+
+      const status = currentRoomData.bellStatus;
       const display = document.getElementById('bellStatusDisplay');
-      display.style.backgroundColor = 'red'; display.textContent = 'CHUÔNG ĐANG KHÓA';
-      if (status === 'open_infinite') { display.style.backgroundColor = 'blue'; display.textContent = 'CHUÔNG ĐANG MỞ (VÔ HẠN)'; }
-      else if (status === 'open_timed') { display.style.backgroundColor = 'green'; display.textContent = 'CHUÔNG ĐANG MỞ (CÓ TÍNH GIỜ)'; }
-      else if (status === 'locked_winner') { display.style.backgroundColor = '#ff00cc'; display.textContent = 'ĐÃ CÓ NGƯỜI BẤM!'; }
+
+      // Sử dụng switch case để code sạch sẽ và dễ kiểm soát hơn
+      switch (status) {
+        case 'open_infinite':
+          display.style.backgroundColor = 'blue';
+          display.textContent = 'CHUÔNG ĐANG MỞ (VÔ HẠN)';
+          break;
+        case 'open_timed':
+          display.style.backgroundColor = 'green';
+          display.textContent = 'CHUÔNG ĐANG MỞ (CÓ TÍNH GIỜ)';
+          break;
+        case 'locked_winner':
+          display.style.backgroundColor = '#ff00cc';
+          display.textContent = 'ĐÃ CÓ NGƯỜI BẤM!';
+          break;
+        case 'locked':
+        default:
+          display.style.backgroundColor = 'red';
+          display.textContent = 'CHUÔNG ĐANG KHÓA';
+          break;
+      }
     }
 
     function updateBellOptionsUI(options) {
