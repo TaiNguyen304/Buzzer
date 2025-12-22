@@ -669,61 +669,83 @@
       let status = isTimed ? "open_timed" : "open_infinite";
       const opts = currentRoomData.options || {};
       let startTimeOffset = 0;
-      let inputSec = parseFloat(document.getElementById('bellTimeInput').value) || 10;
+      let secondsToRun = parseFloat(document.getElementById('bellTimeInput').value) || 10;
 
-      // Lấy thông tin người vừa bấm gần nhất
+      // Lấy thông tin lần bấm cuối cùng (nếu có)
       const lastBuzz = (currentRoomData.buzzes && currentRoomData.buzzes.length > 0)
         ? currentRoomData.buzzes[currentRoomData.buzzes.length - 1] : null;
 
       if (isTimed) {
-        // Xử lý loại Tùy chọn: Tính thời gian (Mở chuông giới hạn)
         if (opts.timedOption === 'continue' && lastBuzz) {
-          // TÍNH TIẾP: Lấy số giây còn lại trừ đi thời gian người trước đã dùng
-          inputSec = Math.max(0, inputSec - lastBuzz.time);
-          document.getElementById('bellTimeInput').value = inputSec.toFixed(3);
-          startTimeOffset = lastBuzz.time;
+          // TÍNH TIẾP: Lấy số giây ban đầu trừ đi mốc thời gian người trước đã bấm
+          // Ví dụ: 10s - 3.5s = còn lại 6.5s
+          secondsToRun = Math.max(0, secondsToRun - lastBuzz.time);
+          startTimeOffset = lastBuzz.time; // Để thí sinh sau cộng dồn từ mốc 3.5s
         } else {
-          // TÍNH LẠI: Reset offset về 0 (bắt đầu lại từ số giây trên textbox)
+          // TÍNH LẠI: Chạy đủ số giây trên ô input
           startTimeOffset = 0;
         }
 
+        // Hủy timer cũ nếu có
         if (bellTimer) clearTimeout(bellTimer);
-        bellTimer = setTimeout(() => { lockBell(); }, (inputSec * 1000) + 300);
+        // Thiết lập timer mới để tự động khóa khi hết thời gian còn lại
+        bellTimer = setTimeout(() => { lockBell(); }, (secondsToRun * 1000) + 200);
       } else {
-        // Xử lý loại Tùy chọn: Tính thời gian (Mở chuông vĩnh viễn)
+        // Mở vĩnh viễn
         if (opts.infOption === 'continue' && lastBuzz) {
-          // TÍNH TIẾP: Bắt đầu đếm tiếp từ mốc thời gian của người trước
           startTimeOffset = lastBuzz.time;
         } else {
-          // TÍNH LẠI: Bắt đầu từ 0.000s
           startTimeOffset = 0;
         }
       }
 
-      // Cập nhật trạng thái phòng nhưng GIỮ NGUYÊN mảng buzzes
-      let { data: room } = await supabaseClient.from('rooms').select('room_data').eq('id', currentRoomId).single();
-      let updatedData = { ...room.room_data };
-
-      updatedData.bellStatus = status;
-      updatedData.bellOpenTimestamp = new Date().toISOString();
-      updatedData.startTimeOffset = startTimeOffset;
-      // Lưu ý: Không reset updatedData.buzzes ở đây để thí sinh cũ không được bấm lại
-
-      await supabaseClient.from('rooms').update({
-        room_data: updatedData,
-        updated_at: new Date().toISOString()
-      }).eq('id', currentRoomId);
+      await updateRoomData({
+        bellStatus: status,
+        bellOpenTimestamp: new Date().toISOString(),
+        startTimeOffset: startTimeOffset
+      });
     }
 
-    async function lockBell() { if (bellTimer) clearTimeout(bellTimer); await updateRoomData({ bellStatus: "locked" }); }
+    async function lockBell() {
+      if (!currentRoomId) return;
+      // Khi khóa chuông thủ công hoặc hết giờ, hủy bộ đếm ngay
+      if (bellTimer) {
+        clearTimeout(bellTimer);
+        bellTimer = null;
+      }
+      await updateRoomData({ bellStatus: 'locked' });
+    }
 
     async function resetBell() {
-      document.getElementById('buzzTableBody').innerHTML = `<tr><td colspan="2">Đang reset chuông...</td></tr>`;
-      let nextStatus = null;
-      if (currentRoomData && currentRoomData.bellStatus === 'open_infinite') { nextStatus = 'open_infinite'; }
-      const payload = { reset: true };
-      if (nextStatus === 'open_infinite') { payload.bellStatus = 'open_infinite'; }
-      await updateRoomData(payload); if (bellTimer) clearTimeout(bellTimer);
+      if (!currentRoomId) return;
+
+      // 1. Dừng ngay lập tức bộ đếm thời gian (timer) đang chạy nếu có
+      if (bellTimer) {
+        clearTimeout(bellTimer);
+        bellTimer = null;
+      }
+
+      // 2. Hiển thị trạng thái chờ trên bảng
+      document.getElementById('buzzTableBody').innerHTML = `<tr><td colspan="2" class="text-center py-4">Đang reset chuông...</td></tr>`;
+
+      // 3. Chuẩn bị payload cập nhật Database
+      // Chúng ta cần xóa mảng buzzes và đưa startTimeOffset về 0
+      const payload = {
+        reset: true,          // Tín hiệu reset cho logic backend/realtime
+        buzzes: [],           // Xóa danh sách người đã bấm
+        startTimeOffset: 0,   // Đưa mốc thời gian tích lũy về 0
+        bellStatus: 'locked', // Mặc định khóa chuông sau khi reset
+        bellOpenTimestamp: null
+      };
+
+      // Nếu bạn muốn giữ trạng thái "Mở vĩnh viễn" sau khi reset (như code gốc của bạn)
+      if (currentRoomData && currentRoomData.bellStatus === 'open_infinite') {
+        payload.bellStatus = 'open_infinite';
+        payload.bellOpenTimestamp = new Date().toISOString();
+      }
+
+      // 4. Cập nhật lên Supabase
+      await updateRoomData(payload);
     }
 
     function updateBellUI(status) {
