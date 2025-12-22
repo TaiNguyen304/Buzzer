@@ -450,6 +450,7 @@
             };
 
             // Gọi hàm RPC (đã tạo ở bước trước) để đẩy dữ liệu lên mà không gây nhảy số
+            const roomIdInt = parseInt(currentRoomId);
             const isSingleWinner = (currentRoomData.options.buzzMode === 'single-winner');
 
             const { error } = await supabaseClient.rpc('push_buzz_atomic', {
