@@ -432,10 +432,9 @@
         }
 
         async function handleBuzzerClick() {
-            // Nếu đã bấm rồi (ID có trong mảng buzzes) thì không cho bấm nữa
-            if (iHaveBuzzed || buzzerBtn.disabled) return;
+            if (!currentRoomData || !userId || buzzerBtn.disabled) return;
 
-            setBuzzerState("buzzed", "Đang gửi...");
+            setBuzzerState("buzzed", "Đang ghi nhận...");
 
             let buzzTime = 0;
             if (localBellStartTime) {
@@ -449,19 +448,20 @@
                 time: parseFloat(buzzTime.toFixed(3))
             };
 
-            // Gọi hàm RPC (đã tạo ở bước trước) để đẩy dữ liệu lên mà không gây nhảy số
-            const roomIdInt = parseInt(currentRoomId);
-            const isSingleWinner = (currentRoomData.options.buzzMode === 'single-winner');
+            // Đảm bảo lấy đúng giá trị buzzMode từ options
+            const isSingleWinner = (currentRoomData.options && currentRoomData.options.buzzMode === 'single-winner');
 
+            // Gửi currentRoomId dưới dạng String
             const { error } = await supabaseClient.rpc('push_buzz_atomic', {
-                room_id_input: currentRoomId,
+                room_id_input: String(currentRoomId),
                 new_buzz_json: newBuzz,
-                should_lock: isSingleWinner // Khóa chuông (tạm dừng) nếu là chế độ 1 người thắng
+                should_lock: !!isSingleWinner
             });
 
             if (error) {
                 console.error("Lỗi bấm chuông:", error);
-                setBuzzerState("active", "Lỗi, thử lại!");
+                alert("Lỗi: " + error.message);
+                setBuzzerState("active", "Thử lại");
             }
         }
 
