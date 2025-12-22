@@ -366,39 +366,35 @@
         }
 
         function handleRoomStateUpdate(data) {
-            const oldBellSessionId = currentRoomData ? currentRoomData.bellSessionId : null;
             currentRoomData = data;
 
             const isBellOpen = currentRoomData.bellStatus.startsWith('open');
-            const isNewSession = oldBellSessionId !== currentRoomData.bellSessionId;
 
-            // --- LOGIC TÍNH GIỜ LOCAL (ĐÃ CHỈNH SỬA) ---
-            if (isBellOpen) {
-                // Nếu chuông mở VÀ (chưa có mốc giờ HOẶC là phiên mới do Host reset)
-                // Thì đặt lại mốc thời gian ngay lập tức.
-                if (localBellStartTime === null || isNewSession) {
+            // Kiểm tra xem mình đã bấm trong danh sách buzzes hiện tại chưa
+            const myBuzz = (currentRoomData.buzzes || []).find(b => String(b.userId) === String(userId));
+
+            if (myBuzz) {
+                iHaveBuzzed = true;
+                myBuzzTime = myBuzz.time;
+            } else {
+                iHaveBuzzed = false;
+                myBuzzTime = null;
+            }
+
+            // Logic tính thời gian local
+            if (isBellOpen && !iHaveBuzzed) {
+                if (localBellStartTime === null) {
                     localBellStartTime = Date.now();
                 }
             } else {
-                // Nếu chuông đóng -> Reset mốc
                 localBellStartTime = null;
             }
-            // -----------------------------------------
 
-            // Nếu ID phiên thay đổi (Host reset), reset trạng thái của mình
-            if (isNewSession) {
-                iHaveBuzzed = false;
-                myBuzzTime = null;
-                previousBuzzCount = 0;
+            // Âm thanh khi có người mới bấm
+            if ((data.buzzes || []).length > previousBuzzCount) {
+                playBuzzerSound();
             }
-
-            const currentBuzzes = data.buzzes || [];
-            if (currentBuzzes.length > previousBuzzCount) { playBuzzerSound(); }
-            previousBuzzCount = currentBuzzes.length;
-
-            const myBuzzInThisSession = currentRoomData.buzzes.find(b => String(b.userId) === String(userId) && b.bellSessionId === currentRoomData.bellSessionId);
-            if (myBuzzInThisSession) { iHaveBuzzed = true; myBuzzTime = myBuzzInThisSession.time; }
-            else { iHaveBuzzed = false; myBuzzTime = null; }
+            previousBuzzCount = (data.buzzes || []).length;
 
             updateBuzzerUI();
         }
@@ -436,35 +432,36 @@
         }
 
         async function handleBuzzerClick() {
-            if (!currentRoomData || !userId || buzzerBtn.disabled || !currentRoomData.bellSessionId) return;
-            if (buzzerBtn.classList.contains('buzzed') || buzzerBtn.classList.contains('locked')) return;
+            // Nếu đã bấm rồi (ID có trong mảng buzzes) thì không cho bấm nữa
+            if (iHaveBuzzed || buzzerBtn.disabled) return;
 
-            playBuzzerSound();
             setBuzzerState("buzzed", "Đang gửi...");
 
-            // --- TÍNH TOÁN THỜI GIAN LOCAL (CHÍNH XÁC, KHÔNG TÍNH ĐỘ TRỄ MẠNG) ---
             let buzzTime = 0;
             if (localBellStartTime) {
-                // Thời gian = Lúc bấm - Lúc nhận được hiệu lệnh mở/reset
-                buzzTime = (Date.now() - localBellStartTime) / 1000;
+                const offset = currentRoomData.startTimeOffset || 0;
+                buzzTime = ((Date.now() - localBellStartTime) / 1000) + offset;
             }
-            if (buzzTime < 0) buzzTime = 0;
-            // ---------------------------------
 
             const newBuzz = {
-                roomId: currentRoomId, username: username, userId: userId,
-                bellSessionId: currentRoomData.bellSessionId,
-                time: buzzTime // Gửi thời gian đã tính toán tại local đi
+                username: username,
+                userId: userId,
+                time: parseFloat(buzzTime.toFixed(3))
             };
 
-            let updatedData = { ...currentRoomData, buzzes: [...(currentRoomData.buzzes || []), newBuzz] };
-            if (currentRoomData.options.buzzMode === 'single-winner') { updatedData.bellStatus = 'locked_winner'; }
+            // Gọi hàm RPC (đã tạo ở bước trước) để đẩy dữ liệu lên mà không gây nhảy số
+            const isSingleWinner = (currentRoomData.options.buzzMode === 'single-winner');
 
-            const { error } = await supabaseClient.from('rooms').update({
-                room_data: updatedData, updated_at: new Date().toISOString(), participants_changed_at: new Date().toISOString()
-            }).eq('id', currentRoomId);
+            const { error } = await supabaseClient.rpc('push_buzz_atomic', {
+                room_id_input: currentRoomId,
+                new_buzz_json: newBuzz,
+                should_lock: isSingleWinner // Khóa chuông (tạm dừng) nếu là chế độ 1 người thắng
+            });
 
-            if (error) { console.error("Lỗi khi bấm chuông:", error); setBuzzerState("active", "Lỗi, thử lại!"); }
+            if (error) {
+                console.error("Lỗi bấm chuông:", error);
+                setBuzzerState("active", "Lỗi, thử lại!");
+            }
         }
 
         async function leaveRoom() {
