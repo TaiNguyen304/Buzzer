@@ -579,7 +579,20 @@
       if (supabaseChannel) { supabaseClient.removeChannel(supabaseChannel); }
       supabaseChannel = supabaseClient.channel(`room_${roomId}`)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
-          if (payload.new && payload.new.room_data) { handleRoomStateUpdate(payload.new.room_data); }
+          const newRoomData = payload.new.room_data;
+
+          // NẾU TRẠNG THÁI KHÔNG CÒN LÀ OPEN, HỦY TIMER NGAY LẬP TỨC
+          if (newRoomData.bellStatus !== 'open_timed' && newRoomData.bellStatus !== 'open_infinite') {
+            if (bellTimer) {
+              console.log("Dừng Timer vì chuông đã có người bấm hoặc bị khóa");
+              clearTimeout(bellTimer);
+              bellTimer = null;
+            }
+          }
+
+          currentRoomData = newRoomData;
+          renderBuzzes();
+          updateUIStatus();
         })
         .subscribe();
     }
@@ -666,36 +679,39 @@
     async function openBell(isTimed = false) {
       if (!currentRoomId || (!isHost && !isManager)) return;
 
+      // Hủy bất kỳ timer nào đang chạy trước đó để tránh cộng dồn
+      if (bellTimer) {
+        clearTimeout(bellTimer);
+        bellTimer = null;
+      }
+
       let status = isTimed ? "open_timed" : "open_infinite";
       const opts = currentRoomData.options || {};
-      let startTimeOffset = 0;
       let secondsToRun = parseFloat(document.getElementById('bellTimeInput').value) || 10;
+      let startTimeOffset = 0;
 
-      // Lấy thông tin lần bấm cuối cùng (nếu có)
       const lastBuzz = (currentRoomData.buzzes && currentRoomData.buzzes.length > 0)
         ? currentRoomData.buzzes[currentRoomData.buzzes.length - 1] : null;
 
       if (isTimed) {
         if (opts.timedOption === 'continue' && lastBuzz) {
-          // TÍNH TIẾP: Lấy số giây ban đầu trừ đi mốc thời gian người trước đã bấm
-          // Ví dụ: 10s - 3.5s = còn lại 6.5s
+          // Tính số giây còn lại: Lấy tổng thời gian trừ đi thời gian người trước đã dùng
           secondsToRun = Math.max(0, secondsToRun - lastBuzz.time);
-          startTimeOffset = lastBuzz.time; // Để thí sinh sau cộng dồn từ mốc 3.5s
-        } else {
-          // TÍNH LẠI: Chạy đủ số giây trên ô input
-          startTimeOffset = 0;
+          startTimeOffset = lastBuzz.time;
         }
 
-        // Hủy timer cũ nếu có
-        if (bellTimer) clearTimeout(bellTimer);
-        // Thiết lập timer mới để tự động khóa khi hết thời gian còn lại
-        bellTimer = setTimeout(() => { lockBell(); }, (secondsToRun * 1000) + 200);
+        // Thiết lập timer: Sau khi hết thời gian còn lại mới khóa chuông
+        bellTimer = setTimeout(async () => {
+          // Kiểm tra lại trạng thái trước khi tự động khóa
+          // Nếu đã có người thắng (locked_winner) thì không tự ý đổi về locked nữa
+          const { data } = await supabaseClient.from('rooms').select('room_data').eq('id', currentRoomId).single();
+          if (data && data.room_data.bellStatus.startsWith('open')) {
+            lockBell();
+          }
+        }, (secondsToRun * 1000) + 100);
       } else {
-        // Mở vĩnh viễn
         if (opts.infOption === 'continue' && lastBuzz) {
           startTimeOffset = lastBuzz.time;
-        } else {
-          startTimeOffset = 0;
         }
       }
 
