@@ -438,7 +438,9 @@
 
   <div id="bellOptionsModal" class="modal-overlay" style="display: none;">
     <div class="modal-content" style="text-align: left; max-width: 450px;">
-      <h2 style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;color: #ff00cc;">Tùy chọn
+      <h2
+        style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;color: #ff00cc;">
+        Tùy chọn
         chuông</h2>
 
       <div class="modal-body" style="display: flex; flex-direction: column; gap: 20px;">
@@ -583,43 +585,54 @@
           event: 'UPDATE',
           schema: 'public',
           table: 'rooms',
-          filter: `id=eq.${roomId}` // id lấy từ database của bạn
+          filter: `id=eq.${roomId}`
         }, payload => {
-          const newRoomData = payload.new.room_data;
-
-          // Dừng Timer nếu trạng thái không còn là 'open'
-          if (newRoomData.bellStatus !== 'open_timed' && newRoomData.bellStatus !== 'open_infinite') {
-            if (bellTimer) {
-              clearTimeout(bellTimer);
-              bellTimer = null;
-            }
-          }
-
-          // Cập nhật dữ liệu vào biến toàn cục
-          currentRoomData = newRoomData;
-
-          // CẬP NHẬT GIAO DIỆN NGAY LẬP TỨC
-          renderBuzzTable(currentRoomData.buzzes || []);
-          updateBellUI(); // Gọi hàm này ở đây để UI thay đổi màu sắc
+          // Gọi hàm xử lý tập trung để cập nhật mọi thứ (chuông, danh sách người chơi, bảng buzz)
+          handleRoomStateUpdate(payload.new.room_data);
         })
-
         .subscribe();
     }
 
     function handleRoomStateUpdate(data) {
+      if (!data) return;
+
+      // 1. Cập nhật dữ liệu toàn cục
       currentRoomData = data;
       currentParticipants = Array.isArray(data.participants) ? data.participants : [];
+
+      // 2. Cập nhật số lượng người tham gia trên nút bấm
       const playerCount = currentParticipants.filter(p => !p.isHost && !p.isManager).length;
       document.getElementById('showParticipantsBtn').textContent = `Danh sách tham gia (${playerCount})`;
-      if (document.getElementById('participantsModal').style.display !== 'none') { renderParticipantsList(); }
-      if (document.getElementById('lockUsersModal').style.display !== 'none') { renderLockUsersList(); }
-      updateBellUI(data.bellStatus);
-      updateBellOptionsUI(data.options);
+
+      // 3. Quản lý Timer (nếu chuông không còn mở thì xóa timer)
+      if (data.bellStatus !== 'open_timed' && data.bellStatus !== 'open_infinite') {
+        if (bellTimer) {
+          clearTimeout(bellTimer);
+          bellTimer = null;
+        }
+      }
+
+      // 4. Cập nhật âm thanh khi có người bấm mới
       const currentBuzzes = data.buzzes || [];
-      if (currentBuzzes.length > previousBuzzCount) { playBuzzerSound(); }
+      if (currentBuzzes.length > previousBuzzCount) {
+        playBuzzerSound();
+      }
       previousBuzzCount = currentBuzzes.length;
+
+      // 5. Render lại toàn bộ giao diện
       renderBuzzTable(currentBuzzes);
-      updateLockedUsersUI(Array.isArray(data.lockedUsers) ? data.lockedUsers : null);
+      updateBellUI();
+      updateBellOptionsUI(data.options);
+      updateLockedUsersUI(Array.isArray(data.lockedUsers) ? data.lockedUsers : []);
+
+      // 6. Nếu Modal danh sách đang mở thì render lại danh sách ngay lập tức
+      if (document.getElementById('participantsModal').style.display !== 'none') {
+        renderParticipantsList();
+      }
+      if (document.getElementById('lockUsersModal').style.display !== 'none') {
+        renderLockUsersList();
+      }
+
       enableButtons();
     }
 
