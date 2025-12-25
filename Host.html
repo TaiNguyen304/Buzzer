@@ -667,35 +667,94 @@
       if (!userId) return;
       document.getElementById('createRoomBtn').disabled = true;
       const roomId = Math.floor(100000 + Math.random() * 900000).toString();
-      const initialRoomData = { id: roomId, bellStatus: 'locked', bellSessionId: Date.now().toString(), bellOpenTimestamp: null, buzzes: [], lockedUsers: [], options: { buzzCount: 'single', buzzMode: 'single-winner' }, participants: [{ userId: userId, username: 'Host', isHost: true }] };
-      const { error } = await supabaseClient.from('rooms').insert([{ id: roomId, room_data: initialRoomData, updated_at: new Date().toISOString(), participants_changed_at: new Date().toISOString() }]);
+      
+      const initialRoomData = { 
+          id: roomId, 
+          bellStatus: 'locked', 
+          bellSessionId: Date.now().toString(), 
+          bellOpenTimestamp: null, 
+          buzzes: [], 
+          lockedUsers: [], 
+          options: { buzzCount: 'single', buzzMode: 'single-winner' }, 
+          participants: [{ userId: userId, username: 'Host', isHost: true }] 
+      };
+
+      const { error } = await supabaseClient.from('rooms').insert([{ 
+          id: roomId, 
+          room_data: initialRoomData, 
+          updated_at: new Date().toISOString(), 
+          participants_changed_at: new Date().toISOString() 
+      }]);
+
       if (error) { document.getElementById('createRoomBtn').disabled = false; return; }
-      currentRoomId = roomId; isHost = true; isManager = false; currentRoomData = initialRoomData;
+
+      currentRoomId = roomId; 
+      isHost = true; 
+      isManager = false; 
+      
       setupRealtimeListener(roomId);
-      document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`; document.getElementById('roomCodeDisplay').style.display = 'block';
-      document.getElementById('createRoomBtn').textContent = `Mã phòng: ${currentRoomId}`; document.getElementById('createRoomBtn').disabled = true;
+      
+      // --- QUAN TRỌNG: Cập nhật giao diện Host ngay lập tức ---
+      handleRoomStateUpdate(initialRoomData); 
+
+      document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`; 
+      document.getElementById('roomCodeDisplay').style.display = 'block';
+      document.getElementById('createRoomBtn').textContent = `Mã phòng: ${currentRoomId}`; 
+      document.getElementById('createRoomBtn').disabled = true;
       document.getElementById('joinRoomBtn').style.display = 'none';
-      enableButtons(); updateBellUI("locked"); document.getElementById('bellControlSection').style.display = 'block';
+      document.getElementById('bellControlSection').style.display = 'block';
     }
 
     async function confirmJoinRoom() {
       const roomId = document.getElementById('joinRoomCodeInput').value.trim();
       const usernameInput = document.getElementById('joinUsernameInput').value.trim();
       if (!roomId || !usernameInput || !userId) return;
+
+      // 1. Tải dữ liệu phòng hiện tại (bao gồm các thí sinh đã vào trước đó)
       let { data: room } = await supabaseClient.from('rooms').select('room_data').eq('id', roomId).single();
-      if (!room) return;
+      if (!room) { alert("Không tìm thấy phòng!"); return; }
+
       const participants = room.room_data.participants || [];
       const newParticipant = { userId, username: usernameInput, isManager: true, isHost: false };
-      const filteredParticipants = participants.filter(p => !(!p.isHost && !p.isManager && String(p.username).toLowerCase() === String(usernameInput).toLowerCase()) && String(p.userId) !== String(userId));
+      
+      // Lọc bỏ trùng lặp và thêm Quản lý vào danh sách
+      const filteredParticipants = participants.filter(p => 
+        !(!p.isHost && !p.isManager && String(p.username).toLowerCase() === String(usernameInput).toLowerCase()) 
+        && String(p.userId) !== String(userId)
+      );
       filteredParticipants.push(newParticipant);
-      await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants: filteredParticipants }, updated_at: new Date().toISOString(), participants_changed_at: new Date().toISOString() }).eq('id', roomId);
-      currentRoomId = roomId; isHost = false; isManager = true; managerUsername = usernameInput;
+
+      // 2. Cập nhật dữ liệu mới lên Server
+      const updatedRoomData = { ...room.room_data, participants: filteredParticipants };
+      await supabaseClient.from('rooms').update({ 
+          room_data: updatedRoomData, 
+          updated_at: new Date().toISOString(), 
+          participants_changed_at: new Date().toISOString() 
+      }).eq('id', roomId);
+
+      // 3. Thiết lập biến cục bộ
+      currentRoomId = roomId; 
+      isHost = false; 
+      isManager = true; 
+      managerUsername = usernameInput;
+
+      // 4. Kích hoạt Realtime để lắng nghe các thay đổi sau này
       setupRealtimeListener(roomId);
-      document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`; document.getElementById('roomCodeDisplay').style.display = 'block';
-      document.getElementById('createRoomBtn').textContent = `Đã tham gia: ${currentRoomId}`; document.getElementById('createRoomBtn').disabled = true;
+
+      // --- QUAN TRỌNG: Cập nhật giao diện ngay lập tức với dữ liệu vừa có ---
+      handleRoomStateUpdate(updatedRoomData); 
+
+      // 5. Hiển thị khu vực điều khiển
+      document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`; 
+      document.getElementById('roomCodeDisplay').style.display = 'block';
+      document.getElementById('createRoomBtn').textContent = `Đã tham gia: ${currentRoomId}`; 
+      document.getElementById('createRoomBtn').disabled = true;
       document.getElementById('joinRoomBtn').style.display = 'none';
-      enableButtons(); document.getElementById('bellControlSection').style.display = 'block'; closeModal('joinRoomModal');
-      localStorage.setItem('manager_roomId', currentRoomId); localStorage.setItem('manager_userId', userId);
+      document.getElementById('bellControlSection').style.display = 'block'; 
+      
+      closeModal('joinRoomModal');
+      localStorage.setItem('manager_roomId', currentRoomId); 
+      localStorage.setItem('manager_userId', userId);
     }
 
     async function openBell(isTimed = false) {
