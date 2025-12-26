@@ -517,12 +517,11 @@
             </h3>
             <div style="display: flex; flex-direction: column; gap: 8px; padding-left: 5px;">
               <label style="color: black; cursor: pointer; display: flex; align-items: center; font-size: 0.95rem;">
-                <input type="radio" id="pause-standard" name="pauseMode" value="standard" checked
-                  style="margin-right: 10px;">
+                <input type="checkbox" id="pause-standard" style="margin-right: 10px;">
                 Tạm dừng thời gian
               </label>
               <label style="color: black; cursor: pointer; display: flex; align-items: center; font-size: 0.95rem;">
-                <input type="radio" id="pause-interrupt" name="pauseMode" value="interrupt" style="margin-right: 10px;">
+                <input type="checkbox" id="pause-interrupt" style="margin-right: 10px;">
                 Ngắt chuông trong 1 khoảng thời gian
               </label>
             </div>
@@ -571,7 +570,7 @@
     let previousBuzzCount = 0;
     let supabaseChannel = null;
     let interruptTimer = null;
-    let lastOpenStatus = 'open_infinite';
+    let lastBellType = 'infinite'; // Mặc định
     const buzzSound = document.getElementById('buzzSound');
 
     function playBuzzerSound() { if (buzzSound) { buzzSound.currentTime = 0; buzzSound.play().catch(e => console.log("Audio autoplay blocked", e)); } }
@@ -604,7 +603,6 @@
           table: 'rooms',
           filter: `id=eq.${roomId}`
         }, payload => {
-          // Gọi hàm xử lý tập trung để cập nhật mọi thứ (chuông, danh sách người chơi, bảng buzz)
           handleRoomStateUpdate(payload.new.room_data);
         })
         .subscribe();
@@ -613,19 +611,15 @@
     function handleRoomStateUpdate(data) {
       if (!data) return;
 
-      // 1. Cập nhật dữ liệu toàn cục
       currentRoomData = data;
       currentParticipants = Array.isArray(data.participants) ? data.participants : [];
 
-      // Ghi nhớ loại chuông đang mở (để tí nữa tự động mở lại đúng loại đó)
       if (data.bellStatus === 'open_timed') lastBellType = 'timed';
       if (data.bellStatus === 'open_infinite') lastBellType = 'infinite';
 
-      // 2. Cập nhật số lượng người tham gia trên nút bấm
       const playerCount = currentParticipants.filter(p => !p.isHost && !p.isManager).length;
       document.getElementById('showParticipantsBtn').textContent = `Danh sách tham gia (${playerCount})`;
 
-      // 3. Quản lý Timer chính (nếu chuông không còn mở thì xóa timer)
       if (data.bellStatus !== 'open_timed' && data.bellStatus !== 'open_infinite') {
         if (bellTimer) {
           clearTimeout(bellTimer);
@@ -633,13 +627,11 @@
         }
       }
 
-      // --- MỚI: CƠ CHẾ NGẮT CHUÔNG TỰ ĐỘNG ---
-      if (data.bellStatus === 'locked_winner' && data.options && data.options.pauseMode === 'interrupt') {
-        // Nếu trạng thái là có người bấm trúng và đang chọn chế độ "Ngắt chuông"
+      // CƠ CHẾ NGẮT CHUÔNG TỰ ĐỘNG (Sử dụng flag mới)
+      if (data.bellStatus === 'locked_winner' && data.options && data.options.pauseInterrupt) {
         if (!interruptTimer) {
           const interruptDuration = parseFloat(document.getElementById('interruptTimeInput').value) || 5;
           interruptTimer = setTimeout(async () => {
-            // Sau khi hết thời gian ngắt, tự động mở lại chuông
             if (lastBellType === 'timed') {
               openBell(true);
             } else {
@@ -649,27 +641,23 @@
           }, interruptDuration * 1000);
         }
       } else {
-        // Nếu trạng thái khác (Reset, Lock thủ công...), hủy bộ đếm ngắt chuông
         if (interruptTimer) {
           clearTimeout(interruptTimer);
           interruptTimer = null;
         }
       }
 
-      // 4. Cập nhật âm thanh khi có người bấm mới
       const currentBuzzes = data.buzzes || [];
       if (currentBuzzes.length > previousBuzzCount) {
         playBuzzerSound();
       }
       previousBuzzCount = currentBuzzes.length;
 
-      // 5. Render lại toàn bộ giao diện
       renderBuzzTable(currentBuzzes);
       updateBellUI();
       updateBellOptionsUI(data.options);
       updateLockedUsersUI(Array.isArray(data.lockedUsers) ? data.lockedUsers : []);
 
-      // 6. Nếu Modal danh sách đang mở thì render lại
       if (document.getElementById('participantsModal').style.display !== 'none') {
         renderParticipantsList();
       }
@@ -687,7 +675,7 @@
       let updatedData = { ...room.room_data };
       if (data.reset) {
         updatedData.buzzes = [];
-        updatedData.bellSessionId = Date.now().toString(); // Tạo ID phiên mới để reset giờ Contestant
+        updatedData.bellSessionId = Date.now().toString();
         updatedData.bellOpenTimestamp = null;
         updatedData.bellStatus = 'locked';
         previousBuzzCount = 0;
@@ -703,6 +691,7 @@
         updatedData.bellStatus = 'open_infinite';
         updatedData.bellOpenTimestamp = new Date().toISOString();
       }
+      if (data.startTimeOffset !== undefined) updatedData.startTimeOffset = data.startTimeOffset;
 
       await supabaseClient.from('rooms').update({ room_data: updatedData, updated_at: new Date().toISOString(), participants_changed_at: new Date().toISOString() }).eq('id', currentRoomId);
     }
@@ -719,7 +708,7 @@
         bellOpenTimestamp: null,
         buzzes: [],
         lockedUsers: [],
-        options: { buzzCount: 'single', buzzMode: 'single-winner' },
+        options: { buzzCount: 'single', buzzMode: 'single-winner', pauseStandard: true, pauseInterrupt: false },
         participants: [{ userId: userId, username: 'Host', isHost: true }]
       };
 
@@ -737,8 +726,6 @@
       isManager = false;
 
       setupRealtimeListener(roomId);
-
-      // --- QUAN TRỌNG: Cập nhật giao diện Host ngay lập tức ---
       handleRoomStateUpdate(initialRoomData);
 
       document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`;
@@ -754,21 +741,18 @@
       const usernameInput = document.getElementById('joinUsernameInput').value.trim();
       if (!roomId || !usernameInput || !userId) return;
 
-      // 1. Tải dữ liệu phòng hiện tại (bao gồm các thí sinh đã vào trước đó)
       let { data: room } = await supabaseClient.from('rooms').select('room_data').eq('id', roomId).single();
       if (!room) { alert("Không tìm thấy phòng!"); return; }
 
       const participants = room.room_data.participants || [];
       const newParticipant = { userId, username: usernameInput, isManager: true, isHost: false };
 
-      // Lọc bỏ trùng lặp và thêm Quản lý vào danh sách
       const filteredParticipants = participants.filter(p =>
         !(!p.isHost && !p.isManager && String(p.username).toLowerCase() === String(usernameInput).toLowerCase())
         && String(p.userId) !== String(userId)
       );
       filteredParticipants.push(newParticipant);
 
-      // 2. Cập nhật dữ liệu mới lên Server
       const updatedRoomData = { ...room.room_data, participants: filteredParticipants };
       await supabaseClient.from('rooms').update({
         room_data: updatedRoomData,
@@ -776,19 +760,14 @@
         participants_changed_at: new Date().toISOString()
       }).eq('id', roomId);
 
-      // 3. Thiết lập biến cục bộ
       currentRoomId = roomId;
       isHost = false;
       isManager = true;
       managerUsername = usernameInput;
 
-      // 4. Kích hoạt Realtime để lắng nghe các thay đổi sau này
       setupRealtimeListener(roomId);
-
-      // --- QUAN TRỌNG: Cập nhật giao diện ngay lập tức với dữ liệu vừa có ---
       handleRoomStateUpdate(updatedRoomData);
 
-      // 5. Hiển thị khu vực điều khiển
       document.getElementById('roomCodeDisplay').textContent = `Mã phòng: ${currentRoomId}`;
       document.getElementById('roomCodeDisplay').style.display = 'block';
       document.getElementById('createRoomBtn').textContent = `Đã tham gia: ${currentRoomId}`;
@@ -797,14 +776,11 @@
       document.getElementById('bellControlSection').style.display = 'block';
 
       closeModal('joinRoomModal');
-      localStorage.setItem('manager_roomId', currentRoomId);
-      localStorage.setItem('manager_userId', userId);
     }
 
     async function openBell(isTimed = false) {
       if (!currentRoomId || (!isHost && !isManager)) return;
 
-      // Hủy bất kỳ timer nào đang chạy trước đó để tránh cộng dồn
       if (bellTimer) {
         clearTimeout(bellTimer);
         bellTimer = null;
@@ -820,15 +796,11 @@
 
       if (isTimed) {
         if (opts.timedOption === 'continue' && lastBuzz) {
-          // Tính số giây còn lại: Lấy tổng thời gian trừ đi thời gian người trước đã dùng
           secondsToRun = Math.max(0, secondsToRun - lastBuzz.time);
           startTimeOffset = lastBuzz.time;
         }
 
-        // Thiết lập timer: Sau khi hết thời gian còn lại mới khóa chuông
         bellTimer = setTimeout(async () => {
-          // Kiểm tra lại trạng thái trước khi tự động khóa
-          // Nếu đã có người thắng (locked_winner) thì không tự ý đổi về locked nữa
           const { data } = await supabaseClient.from('rooms').select('room_data').eq('id', currentRoomId).single();
           if (data && data.room_data.bellStatus.startsWith('open')) {
             lockBell();
@@ -849,7 +821,6 @@
 
     async function lockBell() {
       if (!currentRoomId) return;
-      // Khi khóa chuông thủ công hoặc hết giờ, hủy bộ đếm ngay
       if (bellTimer) {
         clearTimeout(bellTimer);
         bellTimer = null;
@@ -859,38 +830,29 @@
 
     async function resetBell() {
       if (!currentRoomId) return;
-
-      // 1. Dừng ngay lập tức bộ đếm thời gian (timer) đang chạy nếu có
       if (bellTimer) {
         clearTimeout(bellTimer);
         bellTimer = null;
       }
-
-      // 2. Hiển thị trạng thái chờ trên bảng
       document.getElementById('buzzTableBody').innerHTML = `<tr><td colspan="2" class="text-center py-4">Đang reset chuông...</td></tr>`;
 
-      // 3. Chuẩn bị payload cập nhật Database
-      // Chúng ta cần xóa mảng buzzes và đưa startTimeOffset về 0
       const payload = {
-        reset: true,          // Tín hiệu reset cho logic backend/realtime
-        buzzes: [],           // Xóa danh sách người đã bấm
-        startTimeOffset: 0,   // Đưa mốc thời gian tích lũy về 0
-        bellStatus: 'locked', // Mặc định khóa chuông sau khi reset
+        reset: true,
+        buzzes: [],
+        startTimeOffset: 0,
+        bellStatus: 'locked',
         bellOpenTimestamp: null
       };
 
-      // Nếu bạn muốn giữ trạng thái "Mở vĩnh viễn" sau khi reset (như code gốc của bạn)
       if (currentRoomData && currentRoomData.bellStatus === 'open_infinite') {
         payload.bellStatus = 'open_infinite';
         payload.bellOpenTimestamp = new Date().toISOString();
       }
 
-      // 4. Cập nhật lên Supabase
       await updateRoomData(payload);
     }
 
     function updateBellUI() {
-      // Nếu chưa có dữ liệu phòng, mặc định hiện khóa
       if (!currentRoomData || !currentRoomData.bellStatus) {
         const display = document.getElementById('bellStatusDisplay');
         display.style.backgroundColor = 'red';
@@ -901,7 +863,6 @@
       const status = currentRoomData.bellStatus;
       const display = document.getElementById('bellStatusDisplay');
 
-      // Sử dụng switch case để code sạch sẽ và dễ kiểm soát hơn
       switch (status) {
         case 'open_infinite':
           display.style.backgroundColor = 'blue';
@@ -939,11 +900,9 @@
         if (el) el.checked = true;
       }
 
-      // Mới: Cập nhật UI cho cơ chế tạm dừng
-      if (options.pauseMode) {
-        const el = document.getElementById('pause-' + options.pauseMode);
-        if (el) el.checked = true;
-      }
+      // Cập nhật Checkboxes
+      document.getElementById('pause-standard').checked = !!options.pauseStandard;
+      document.getElementById('pause-interrupt').checked = !!options.pauseInterrupt;
 
       toggleExtraOptions();
     }
@@ -952,19 +911,38 @@
       const tableBody = document.getElementById('buzzTableBody');
       if (buzzes.length === 0) { tableBody.innerHTML = `<tr><td colspan="2">Chưa có ai bấm chuông</td></tr>`; return; }
 
-      const isMultipleBuzz = currentRoomData.options.buzzCount === 'multiple';
-      const isSingleBuzzCount = currentRoomData.options.buzzCount === 'single';
-      const isAllBuzzMode = currentRoomData.options.buzzMode === 'all-buzz';
+      const opts = currentRoomData.options || {};
+      const isMultipleBuzz = opts.buzzCount === 'multiple';
+      const isSingleBuzzCount = opts.buzzCount === 'single';
+      const isAllBuzzMode = opts.buzzMode === 'all-buzz';
+      
       let latestBuzzPerUser = new Map();
-      if (isMultipleBuzz) { buzzes.forEach(buzz => { const buzzTime = buzz.time !== undefined ? buzz.time : 0; const currentLatest = latestBuzzPerUser.get(buzz.username); if (currentLatest === undefined || buzzTime > (currentLatest.time || 0)) { latestBuzzPerUser.set(buzz.username, buzz); } }); }
+      if (isMultipleBuzz) { 
+        buzzes.forEach(buzz => { 
+          const buzzTime = buzz.time !== undefined ? buzz.time : 0; 
+          const currentLatest = latestBuzzPerUser.get(buzz.username); 
+          if (currentLatest === undefined || buzzTime > (currentLatest.time || 0)) { 
+            latestBuzzPerUser.set(buzz.username, buzz); 
+          } 
+        }); 
+      }
+      
       let fastestUserId = null;
-      if (isAllBuzzMode && isSingleBuzzCount && buzzes.length > 0) { const sortedBuzzes = [...buzzes].sort((a, b) => (a.time || 0) - (b.time || 0)); fastestUserId = sortedBuzzes[0].userId; }
+      if (isAllBuzzMode && isSingleBuzzCount && buzzes.length > 0) { 
+        const sortedBuzzes = [...buzzes].sort((a, b) => (a.time || 0) - (b.time || 0)); 
+        fastestUserId = sortedBuzzes[0].userId; 
+      }
 
       tableBody.innerHTML = buzzes.map(buzz => {
         const timeDiff = buzz.time !== undefined && buzz.time !== null ? buzz.time : 0;
         let rowClass = "";
         if (isAllBuzzMode && isSingleBuzzCount && String(buzz.userId) === String(fastestUserId)) { rowClass = "fastest-buzz"; }
-        else if (isMultipleBuzz) { const latestBuzz = latestBuzzPerUser.get(buzz.username); if (latestBuzz && String(latestBuzz.userId) === String(buzz.userId) && (latestBuzz.time || 0) === timeDiff) { rowClass = "latest-buzz"; } }
+        else if (isMultipleBuzz) { 
+          const latestBuzz = latestBuzzPerUser.get(buzz.username); 
+          if (latestBuzz && String(latestBuzz.userId) === String(buzz.userId) && (latestBuzz.time || 0) === timeDiff) { 
+            rowClass = "latest-buzz"; 
+          } 
+        }
         return `<tr class="${rowClass}"><td style="width: 50%;">${buzz.username}</td><td style="width: 50%;">${timeDiff.toFixed(3)}s</td></tr>`;
       }).join('');
     }
@@ -974,7 +952,6 @@
       if (participants.length === 0) { document.getElementById('participantsList').innerHTML = "<strong>Chưa có ai tham gia.</strong>"; return; }
       const sorted = [...participants].sort((a, b) => { const roleScore = p => p.isHost ? 1 : p.isManager ? 2 : 3; return roleScore(a) - roleScore(b) || (a.username || '').localeCompare(b.username || ''); });
       document.getElementById('participantsList').innerHTML = sorted.map(p => {
-        // Đổi màu: Host = blue, Manager = red, Contestant = purple
         let color = p.isHost ? 'blue' : p.isManager ? 'red' : 'purple';
         return `<p style="font-weight: bold; font-size: 1.125rem; padding: 0.5rem; color: ${color};">${p.username}</p>`;
       }).join('');
@@ -987,9 +964,11 @@
         return `<div style="display: flex; align-items: center;"><input type="checkbox" value="${val}" ${checked ? 'checked' : ''} style="height: 1.25rem; width: 1.25rem; margin-right: 0.75rem;"><label>${p.username}</label></div>`;
       }).join('') : "<strong>Chưa có người tham gia.</strong>";
     }
+    
     function updateLockedUsersUI(locked) { if (!locked) return; document.querySelectorAll('#lockUsersList input').forEach(cb => cb.checked = locked.includes(cb.value)); }
     async function saveLockedUsers() { if (!currentRoomId) return; const locked = Array.from(document.querySelectorAll('#lockUsersList input:checked')).map(cb => cb.value); await updateRoomData({ lockedUsers: locked }); closeModal('lockUsersModal'); }
     async function resetAllLocks() { await updateRoomData({ lockedUsers: [] }); renderLockUsersList(); }
+    
     async function saveBellOptions() {
       if (!currentRoomId) return;
       const buzzCount = document.querySelector('input[name="buzzCount"]:checked').value;
@@ -997,14 +976,16 @@
       const timedOption = document.querySelector('input[name="timedOption"]:checked').value;
       const infOption = document.querySelector('input[name="infOption"]:checked').value;
 
-      // Lấy giá trị cơ chế tạm dừng mới
-      const pauseMode = document.querySelector('input[name="pauseMode"]:checked').value;
+      // Lưu giá trị từ Checkboxes
+      const pauseStandard = document.getElementById('pause-standard').checked;
+      const pauseInterrupt = document.getElementById('pause-interrupt').checked;
 
       await updateRoomData({
-        options: { buzzCount, buzzMode, timedOption, infOption, pauseMode }
+        options: { buzzCount, buzzMode, timedOption, infOption, pauseStandard, pauseInterrupt }
       });
       closeModal('bellOptionsModal');
     }
+
     async function leaveRoomManager() { if (isManager && currentRoomId) { let { data: room } = await supabaseClient.from('rooms').select('room_data').eq('id', currentRoomId).single(); if (room) { const parts = (room.room_data.participants || []).filter(p => String(p.userId) !== String(userId)); await supabaseClient.from('rooms').update({ room_data: { ...room.room_data, participants: parts }, updated_at: new Date(), participants_changed_at: new Date() }).eq('id', currentRoomId); } } }
 
     document.getElementById('createRoomBtn').addEventListener('click', createRoom);
@@ -1021,15 +1002,14 @@
     document.getElementById('saveLockedUsersBtn').addEventListener('click', saveLockedUsers);
     document.getElementById('resetAllLocksBtn').addEventListener('click', resetAllLocks);
     document.getElementById('saveBellOptionsBtn').addEventListener('click', saveBellOptions);
-    window.onbeforeunload = function () { leaveRoomManager(); localStorage.removeItem('manager_roomId'); localStorage.removeItem('manager_userId'); };
+    window.onbeforeunload = function () { leaveRoomManager(); };
     enableButtons();
 
     function toggleExtraOptions() {
-      const isSingleBuzz = document.getElementById('opt-single-buzz').checked;
+      // Chỉ cần chọn "Một người bấm" là hiện phần mở rộng
       const isSingleWinner = document.getElementById('opt-single-winner').checked;
       const extraSection = document.getElementById('extraOptions');
-      // Chỉ hiện khi chọn 1 người bấm + mỗi người 1 lần
-      extraSection.style.display = (isSingleBuzz && isSingleWinner) ? 'block' : 'none';
+      extraSection.style.display = isSingleWinner ? 'block' : 'none';
     }
 
     document.addEventListener("contextmenu", function (e) {
