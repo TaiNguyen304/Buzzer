@@ -567,13 +567,19 @@
     let isHost = false;
     let isManager = false;
     let managerUsername = null;
-    let previousBuzzCount = 0;
+    let previousBuzzCount = -1; // KHỞI TẠO LÀ -1 ĐỂ NHẬN DIỆN LẦN ĐẦU
     let supabaseChannel = null;
     let interruptTimer = null;
-    let lastBellType = 'infinite'; // Mặc định
+    let lastBellType = 'infinite'; 
     const buzzSound = document.getElementById('buzzSound');
 
-    function playBuzzerSound() { if (buzzSound) { buzzSound.currentTime = 0; buzzSound.play().catch(e => console.log("Audio autoplay blocked", e)); } }
+    // HÀM PHÁT ÂM THANH
+    function playBuzzerSound() { 
+        if (buzzSound) { 
+            buzzSound.currentTime = 0; 
+            buzzSound.play().catch(e => console.log("Audio playback was prevented. Please interact with the page first.")); 
+        } 
+    }
 
     userId = `host-${Math.random().toString(36).substring(2, 9)}`;
     document.getElementById('createRoomBtn').textContent = 'Tạo phòng'; document.getElementById('createRoomBtn').disabled = false;
@@ -627,7 +633,14 @@
         }
       }
 
-      // CƠ CHẾ NGẮT CHUÔNG TỰ ĐỘNG (Sử dụng flag mới)
+      // TỰ ĐỘNG PHÁT ÂM THANH KHI CÓ NGƯỜI BẤM MỚI (CHẠY CHO CẢ HOST & MANAGER)
+      const currentBuzzes = data.buzzes || [];
+      if (previousBuzzCount !== -1 && currentBuzzes.length > previousBuzzCount) {
+        playBuzzerSound();
+      }
+      previousBuzzCount = currentBuzzes.length;
+
+      // CƠ CHẾ NGẮT CHUÔNG TỰ ĐỘNG
       if (data.bellStatus === 'locked_winner' && data.options && data.options.pauseInterrupt) {
         if (!interruptTimer) {
           const interruptDuration = parseFloat(document.getElementById('interruptTimeInput').value) || 5;
@@ -646,12 +659,6 @@
           interruptTimer = null;
         }
       }
-
-      const currentBuzzes = data.buzzes || [];
-      if (currentBuzzes.length > previousBuzzCount) {
-        playBuzzerSound();
-      }
-      previousBuzzCount = currentBuzzes.length;
 
       renderBuzzTable(currentBuzzes);
       updateBellUI();
@@ -678,7 +685,7 @@
         updatedData.bellSessionId = Date.now().toString();
         updatedData.bellOpenTimestamp = null;
         updatedData.bellStatus = 'locked';
-        previousBuzzCount = 0;
+        previousBuzzCount = 0; // Reset số lượng chuông về 0 để đồng bộ âm thanh
       }
       if (data.bellStatus) {
         updatedData.bellStatus = data.bellStatus;
@@ -900,7 +907,6 @@
         if (el) el.checked = true;
       }
 
-      // Cập nhật Checkboxes
       document.getElementById('pause-standard').checked = !!options.pauseStandard;
       document.getElementById('pause-interrupt').checked = !!options.pauseInterrupt;
 
@@ -975,8 +981,6 @@
       const buzzMode = document.querySelector('input[name="buzzMode"]:checked').value;
       const timedOption = document.querySelector('input[name="timedOption"]:checked').value;
       const infOption = document.querySelector('input[name="infOption"]:checked').value;
-
-      // Lưu giá trị từ Checkboxes
       const pauseStandard = document.getElementById('pause-standard').checked;
       const pauseInterrupt = document.getElementById('pause-interrupt').checked;
 
@@ -1006,7 +1010,6 @@
     enableButtons();
 
     function toggleExtraOptions() {
-      // Chỉ cần chọn "Một người bấm" là hiện phần mở rộng
       const isSingleWinner = document.getElementById('opt-single-winner').checked;
       const extraSection = document.getElementById('extraOptions');
       extraSection.style.display = isSingleWinner ? 'block' : 'none';
