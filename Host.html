@@ -570,15 +570,15 @@
     let previousBuzzCount = -1; // KHỞI TẠO LÀ -1 ĐỂ NHẬN DIỆN LẦN ĐẦU
     let supabaseChannel = null;
     let interruptTimer = null;
-    let lastBellType = 'infinite'; 
+    let lastBellType = 'infinite';
     const buzzSound = document.getElementById('buzzSound');
 
     // HÀM PHÁT ÂM THANH
-    function playBuzzerSound() { 
-        if (buzzSound) { 
-            buzzSound.currentTime = 0; 
-            buzzSound.play().catch(e => console.log("Audio playback was prevented. Please interact with the page first.")); 
-        } 
+    function playBuzzerSound() {
+      if (buzzSound) {
+        buzzSound.currentTime = 0;
+        buzzSound.play().catch(e => console.log("Audio playback was prevented. Please interact with the page first."));
+      }
     }
 
     userId = `host-${Math.random().toString(36).substring(2, 9)}`;
@@ -915,41 +915,55 @@
 
     function renderBuzzTable(buzzes) {
       const tableBody = document.getElementById('buzzTableBody');
-      if (buzzes.length === 0) { tableBody.innerHTML = `<tr><td colspan="2">Chưa có ai bấm chuông</td></tr>`; return; }
+      if (!buzzes || buzzes.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="2">Chưa có ai bấm chuông</td></tr>`;
+        return;
+      }
 
       const opts = currentRoomData.options || {};
       const isMultipleBuzz = opts.buzzCount === 'multiple';
       const isSingleBuzzCount = opts.buzzCount === 'single';
       const isAllBuzzMode = opts.buzzMode === 'all-buzz';
-      
+
+      // --- BƯỚC QUAN TRỌNG: SẮP XẾP MẢNG THEO THỜI GIAN TĂNG DẦN ---
+      // Tạo bản sao và sắp xếp: người có buzz.time nhỏ nhất sẽ lên đầu danh sách
+      const sortedDisplayBuzzes = [...buzzes].sort((a, b) => (a.time || 0) - (b.time || 0));
+
       let latestBuzzPerUser = new Map();
-      if (isMultipleBuzz) { 
-        buzzes.forEach(buzz => { 
-          const buzzTime = buzz.time !== undefined ? buzz.time : 0; 
-          const currentLatest = latestBuzzPerUser.get(buzz.username); 
-          if (currentLatest === undefined || buzzTime > (currentLatest.time || 0)) { 
-            latestBuzzPerUser.set(buzz.username, buzz); 
-          } 
-        }); 
-      }
-      
-      let fastestUserId = null;
-      if (isAllBuzzMode && isSingleBuzzCount && buzzes.length > 0) { 
-        const sortedBuzzes = [...buzzes].sort((a, b) => (a.time || 0) - (b.time || 0)); 
-        fastestUserId = sortedBuzzes[0].userId; 
+      if (isMultipleBuzz) {
+        sortedDisplayBuzzes.forEach(buzz => {
+          const buzzTime = buzz.time !== undefined ? buzz.time : 0;
+          const currentLatest = latestBuzzPerUser.get(buzz.username);
+          if (currentLatest === undefined || buzzTime > (currentLatest.time || 0)) {
+            latestBuzzPerUser.set(buzz.username, buzz);
+          }
+        });
       }
 
-      tableBody.innerHTML = buzzes.map(buzz => {
+      // Người nhanh nhất luôn là người ở vị trí đầu tiên [0] sau khi đã sort
+      const fastestUserId = sortedDisplayBuzzes.length > 0 ? sortedDisplayBuzzes[0].userId : null;
+
+      // Dùng mảng đã sắp xếp (sortedDisplayBuzzes) để tạo HTML table
+      tableBody.innerHTML = sortedDisplayBuzzes.map(buzz => {
         const timeDiff = buzz.time !== undefined && buzz.time !== null ? buzz.time : 0;
         let rowClass = "";
-        if (isAllBuzzMode && isSingleBuzzCount && String(buzz.userId) === String(fastestUserId)) { rowClass = "fastest-buzz"; }
-        else if (isMultipleBuzz) { 
-          const latestBuzz = latestBuzzPerUser.get(buzz.username); 
-          if (latestBuzz && String(latestBuzz.userId) === String(buzz.userId) && (latestBuzz.time || 0) === timeDiff) { 
-            rowClass = "latest-buzz"; 
-          } 
+
+        // Highlight màu tím cho người đứng đầu (nhanh nhất) khi ở chế độ Single Buzz
+        if (isSingleBuzzCount && String(buzz.userId) === String(fastestUserId)) {
+          rowClass = "fastest-buzz";
         }
-        return `<tr class="${rowClass}"><td style="width: 50%;">${buzz.username}</td><td style="width: 50%;">${timeDiff.toFixed(3)}s</td></tr>`;
+        // Highlight màu xanh cho lượt bấm mới nhất của mỗi người khi ở chế độ Multiple
+        else if (isMultipleBuzz) {
+          const latestBuzz = latestBuzzPerUser.get(buzz.username);
+          if (latestBuzz && String(latestBuzz.userId) === String(buzz.userId) && (latestBuzz.time || 0) === timeDiff) {
+            rowClass = "latest-buzz";
+          }
+        }
+
+        return `<tr class="${rowClass}">
+              <td style="width: 50%;">${buzz.username}</td>
+              <td style="width: 50%;">${timeDiff.toFixed(3)}s</td>
+            </tr>`;
       }).join('');
     }
 
@@ -970,11 +984,11 @@
         return `<div style="display: flex; align-items: center;"><input type="checkbox" value="${val}" ${checked ? 'checked' : ''} style="height: 1.25rem; width: 1.25rem; margin-right: 0.75rem;"><label>${p.username}</label></div>`;
       }).join('') : "<strong>Chưa có người tham gia.</strong>";
     }
-    
+
     function updateLockedUsersUI(locked) { if (!locked) return; document.querySelectorAll('#lockUsersList input').forEach(cb => cb.checked = locked.includes(cb.value)); }
     async function saveLockedUsers() { if (!currentRoomId) return; const locked = Array.from(document.querySelectorAll('#lockUsersList input:checked')).map(cb => cb.value); await updateRoomData({ lockedUsers: locked }); closeModal('lockUsersModal'); }
     async function resetAllLocks() { await updateRoomData({ lockedUsers: [] }); renderLockUsersList(); }
-    
+
     async function saveBellOptions() {
       if (!currentRoomId) return;
       const buzzCount = document.querySelector('input[name="buzzCount"]:checked').value;
