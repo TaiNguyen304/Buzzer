@@ -252,7 +252,8 @@
             <div class="space-y-4">
                 <div>
                     <label for="roomCodeInput">Mã phòng (6 chữ số):</label>
-                    <input type="text" id="roomCodeInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Nhập 6 chữ số">
+                    <input type="text" id="roomCodeInput" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                        placeholder="Nhập 6 chữ số">
                 </div>
                 <div>
                     <label for="usernameInput">Username (Tên của bạn):</label>
@@ -480,9 +481,9 @@
         buzzerBtn.addEventListener('click', handleBuzzerClick);
         document.getElementById('leaveRoomBtn').addEventListener('click', leaveRoom);
 
-        // --- SỰ KIỆN PHÍM CTRL ĐỂ BẤM CHUÔNG ---
+        // --- SỰ KIỆN PHÍM Enter ĐỂ BẤM CHUÔNG ---
         document.addEventListener('keydown', (event) => {
-            if (event.key === 'Control' || event.ctrlKey) {
+            if (event.key === 'Enter' || event.code === 'Enter') {
                 if (buzzerSection.style.display !== 'none' && !buzzerBtn.disabled) {
                     handleBuzzerClick();
                 }
